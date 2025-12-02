@@ -54,12 +54,11 @@ CREATE TABLE BorrowTransactions (
     FOREIGN KEY (BorrowTransactionsId) REFERENCES BorrowTransactions(Id)
 );
 --Tablolara yapılan eklemeler;
-INSERT INTO Users (FullName,PasswordHash,Email)
+INSERT INTO Users (FullName, Email, PasswordHash, Role)
 VALUES 
-('Enes Kuru', 'enes@example.com', 'kuruenes123'),
-('Zehra Dolak', 'zehra@example.com', '49zehra8'),
-('Ada Korkak', 'ada@example.com', 'adakor123');
-
+('Enes Kuru', 'enes@example.com', 'kuruenes123', 'user'),
+('Zehra Dolak', 'zehra@example.com', '49zehra8', 'user'),
+('Ada Korkak', 'ada@example.com', 'adakor123', 'user');
 
 INSERT INTO Authors(Name, LastName,Country)
 VALUES 
@@ -75,7 +74,7 @@ VALUES
 INSERT INTO Books(Title,AuthorId,CategoryId,StockNumber,YearOfpublication)
 VALUES 
 ('Kaygı',2, 1, 67, 2022),
-('Bir Çöküşün Öyküsü',3 ,2, 39, 1998);
+('Bir Çöküşün Öyküsü',1 ,2, 39, 1998);
 
 INSERT INTO BorrowTransactions(BookId,UserId,BorrowDate,ReturnDate,State)
 VALUES 
@@ -101,18 +100,29 @@ BEGIN
     /*odunc alma*/
     IF @islem = 'Al'
     BEGIN
-        INSERT INTO BorrowTransactions(UserId,BorrowDate,ReturnDate,State)
-        VALUES (@kullaniciID, @odunc_tarihi, @iade_tarihi,'alındı');
+         IF EXISTS (SELECT 1 FROM Books WHERE Id = @bookId AND StockNumber > 0)
+        BEGIN
+            INSERT INTO BorrowTransactions(BookId, UserId, BorrowDate, ReturnDate, State)
+            VALUES (@bookId, @kullaniciID, ISNULL(@odunc_tarihi, GETDATE()), @iade_tarihi, 'alındı');
 
-    END
+            -- stok azaltma
+            UPDATE Books SET StockNumber = StockNumber - 1 WHERE Id = @bookId;
+        END
+        ELSE
+        BEGIN
+            RAISERROR('Kitap stokta yok.', 16, 1);
+        END
+    END       
     ELSE IF @islem = 'Iade'
     BEGIN
-        
         UPDATE BorrowTransactions
         SET RealReturnDate = @gercek_iade_tarihi,
             State = 'İade Edildi'
         WHERE Id = @oduncID;
-
+        DECLARE @bId INT;
+        SELECT @bId = BookId FROM BorrowTransactions WHERE Id = @oduncID;
+        IF @bId IS NOT NULL
+            UPDATE Books SET StockNumber = StockNumber + 1 WHERE Id = @bId;
     END
 END;
 GO
@@ -139,7 +149,7 @@ BEGIN
         i.BorrowTransactionsId,
         DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) AS NumberOfDay,
         DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) * 5.0 AS Amount,
-
+        CONVERT(date, GETDATE())
     FROM inserted i
     LEFT JOIN Penalties c ON i.BorrowTransactionsId = c.BorrowTransactionsId
     WHERE i.RealReturnDate > i.ReturnDate
@@ -159,14 +169,15 @@ AS
 SELECT 
     o.Id,
     b.Title AS kitap_basligi,
-    y.Name + ' ' + y.LastName AS Authors,
+    a.Name + ' ' + a.LastName AS Authors,
     u.FullName AS Users,
     o.BorrowDate,
     o.ReturnDate,
     o.state
 FROM BorrowTransactions o
 INNER JOIN Books b ON o.BookId = b.Id
-INNER JOIN Authors y ON b.AuthorId = y.ID
+INNER JOIN Authors a ON b.AuthorId = a.ID
 INNER JOIN Users u ON o.UserId = u.Id
 WHERE o.RealReturnDate IS NULL;
+
 GO
