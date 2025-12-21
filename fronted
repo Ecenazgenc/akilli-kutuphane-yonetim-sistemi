@@ -1,1 +1,683 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 Kütüphane Sistemi</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --primary: #2563eb; --success: #10b981; --warning: #f59e0b; --danger: #ef4444; --bg: #f8fafc; --card: #fff; --text: #1e293b; --border: #e2e8f0; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+        .hidden { display: none !important; }
+        
+        .header { background: linear-gradient(135deg, var(--primary), #1d4ed8); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 1.5rem; font-weight: 700; }
+        .user-info { display: flex; align-items: center; gap: 1rem; }
+        .badge { padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; background: rgba(255,255,255,0.2); }
+        
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+        .btn-logout { background: rgba(255,255,255,0.15); color: white; }
+        
+        .layout { display: flex; min-height: calc(100vh - 64px); }
+        .sidebar { width: 240px; background: var(--card); border-right: 1px solid var(--border); padding: 1rem 0; }
+        .nav-section { padding: 0.5rem 1.5rem; font-size: 0.7rem; text-transform: uppercase; color: #94a3b8; margin-top: 1rem; }
+        .nav-item { padding: 0.8rem 1.5rem; cursor: pointer; display: flex; align-items: center; gap: 0.75rem; border-left: 3px solid transparent; }
+        .nav-item:hover { background: #f1f5f9; }
+        .nav-item.active { background: #eff6ff; border-left-color: var(--primary); color: var(--primary); }
+        .main-content { flex: 1; padding: 2rem; overflow-y: auto; }
+        
+        .card { background: var(--card); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .card-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .card-body { padding: 1.5rem; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat-card { background: var(--card); border-radius: 12px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stat-value { font-size: 2rem; font-weight: 700; }
+        .stat-label { color: #64748b; font-size: 0.85rem; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: #f8fafc; font-size: 0.75rem; text-transform: uppercase; color: #64748b; }
+        
+        .status { padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; }
+        .status-success { background: #d1fae5; color: #065f46; }
+        .status-warning { background: #fef3c7; color: #92400e; }
+        .status-danger { background: #fee2e2; color: #991b1b; }
+        .status-info { background: #dbeafe; color: #1e40af; }
+        
+        .form-group { margin-bottom: 1rem; }
+        .form-label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        .form-input, .form-select { width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
+        .form-input:focus { outline: none; border-color: var(--primary); }
+        
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal { background: white; border-radius: 16px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+        .modal-header { padding: 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+        .modal-close { background: none; border: none; font-size: 1.5rem; cursor: pointer; }
+        .modal-body { padding: 1.5rem; }
+        .modal-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem; }
+        
+        .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 2000; }
+        .toast { background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin-bottom: 0.5rem; border-left: 4px solid var(--success); }
+        .toast-error { border-left-color: var(--danger); }
+        
+        .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea, #764ba2); }
+        .login-card { background: white; padding: 2.5rem; border-radius: 16px; width: 90%; max-width: 380px; }
+        .login-title { text-align: center; margin-bottom: 2rem; }
+        .login-title h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+        .error-msg { background: #fee2e2; color: #991b1b; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.9rem; }
+        .login-footer { text-align: center; margin-top: 1.5rem; color: #64748b; }
+        .login-footer a { color: var(--primary); cursor: pointer; }
+        
+        .books-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
+        .book-card { background: var(--card); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .book-body { padding: 1.25rem; }
+        .book-title { font-weight: 600; margin-bottom: 0.25rem; }
+        .book-author { color: #64748b; font-size: 0.9rem; }
+        .book-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .stock { font-size: 0.85rem; }
+        .stock-ok { color: var(--success); }
+        .stock-out { color: var(--danger); }
+        
+        .page-title { font-size: 1.5rem; margin-bottom: 1.5rem; }
+        .search-box { margin-bottom: 1rem; }
+        .search-input { width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px; }
+        .empty { text-align: center; padding: 3rem; color: #64748b; }
+        .loading { text-align: center; padding: 2rem; color: #64748b; }
+    </style>
+</head>
+<body>
+    <div class="toast-container" id="toasts"></div>
+    
+    <!-- Login -->
+    <div id="loginPage" class="login-page">
+        <div class="login-card">
+            <div class="login-title"><h1>📚 Kütüphane</h1><p>Yönetim Sistemi</p></div>
+            <form id="loginForm">
+                <div id="loginErr" class="error-msg hidden"></div>
+                <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="loginEmail" required></div>
+                <div class="form-group"><label class="form-label">Şifre</label><input type="password" class="form-input" id="loginPass" required></div>
+                <button type="submit" class="btn btn-primary" style="width:100%">Giriş Yap</button>
+            </form>
+            <div class="login-footer">Hesabınız yok mu? <a onclick="showReg()">Kayıt Ol</a></div>
+        </div>
+    </div>
+    
+    <!-- Register -->
+    <div id="regPage" class="login-page hidden">
+        <div class="login-card">
+            <div class="login-title"><h1>📚 Kayıt Ol</h1></div>
+            <form id="regForm">
+                <div id="regErr" class="error-msg hidden"></div>
+                <div class="form-group"><label class="form-label">Ad Soyad</label><input type="text" class="form-input" id="regName" required></div>
+                <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="regEmail" required></div>
+                <div class="form-group"><label class="form-label">Şifre</label><input type="password" class="form-input" id="regPass" required></div>
+                <button type="submit" class="btn btn-primary" style="width:100%">Kayıt Ol</button>
+            </form>
+            <div class="login-footer">Hesabınız var mı? <a onclick="showLogin()">Giriş</a></div>
+        </div>
+    </div>
+    
+    <!-- Main App -->
+    <div id="app" class="hidden">
+        <header class="header">
+            <div class="logo">📚 Kütüphane Sistemi</div>
+            <div class="user-info">
+                <span class="badge" id="userBadge"></span>
+                <span class="badge" id="roleBadge"></span>
+                <button class="btn btn-logout" onclick="logout()">🚪 Çıkış</button>
+            </div>
+        </header>
+        <div class="layout">
+            <nav class="sidebar" id="sidebar"></nav>
+            <main class="main-content" id="content"><div class="loading">Yükleniyor...</div></main>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="modal"><div class="modal" id="modalBox"></div></div>
+
+<script>
+const API = 'http://localhost:5001/api';
+let token = localStorage.getItem('token');
+let user = JSON.parse(localStorage.getItem('user') || 'null');
+let books = [], authors = [], categories = [], users = [];
+
+// API Helper
+async function api(endpoint, method = 'GET', data = null) {
+    try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const opts = { method, headers };
+        if (data) opts.body = JSON.stringify(data);
+        
+        const res = await fetch(API + endpoint, opts);
+        const text = await res.text();
+        
+        let json;
+        try {
+            json = JSON.parse(text);
+        } catch (e) {
+            console.error('JSON parse error:', text);
+            throw new Error('Sunucu hatası');
+        }
+        
+        if (!res.ok) throw new Error(json.error || json.message || 'Hata');
+        return json;
+    } catch (e) {
+        console.error('API Error:', e);
+        throw e;
+    }
+}
+
+function toast(msg, err = false) {
+    const t = document.createElement('div');
+    t.className = 'toast' + (err ? ' toast-error' : '');
+    t.textContent = msg;
+    document.getElementById('toasts').appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+}
+
+function formatDate(d) { return d ? new Date(d).toLocaleDateString('tr-TR') : '-'; }
+function formatDateTime(d) { 
+    if (!d) return '-';
+    const date = new Date(d);
+    return date.toLocaleDateString('tr-TR') + ' ' + date.toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'});
+}
+function isAdmin() { return user && user.role === 'admin'; }
+
+// Auth
+function showLogin() { 
+    document.getElementById('loginPage').classList.remove('hidden'); 
+    document.getElementById('regPage').classList.add('hidden'); 
+}
+function showReg() { 
+    document.getElementById('loginPage').classList.add('hidden'); 
+    document.getElementById('regPage').classList.remove('hidden'); 
+}
+
+document.getElementById('loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    document.getElementById('loginErr').classList.add('hidden');
+    try {
+        const r = await api('/login', 'POST', { 
+            email: document.getElementById('loginEmail').value, 
+            password: document.getElementById('loginPass').value 
+        });
+        token = r.token; 
+        user = r.user;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        initApp();
+    } catch (e) { 
+        document.getElementById('loginErr').textContent = e.message; 
+        document.getElementById('loginErr').classList.remove('hidden'); 
+    }
+};
+
+document.getElementById('regForm').onsubmit = async (e) => {
+    e.preventDefault();
+    document.getElementById('regErr').classList.add('hidden');
+    try {
+        await api('/register', 'POST', { 
+            fullName: document.getElementById('regName').value, 
+            email: document.getElementById('regEmail').value, 
+            password: document.getElementById('regPass').value 
+        });
+        toast('Kayıt başarılı!'); 
+        showLogin();
+    } catch (e) { 
+        document.getElementById('regErr').textContent = e.message; 
+        document.getElementById('regErr').classList.remove('hidden'); 
+    }
+};
+
+function logout() { 
+    token = null; 
+    user = null; 
+    localStorage.clear(); 
+    location.reload(); 
+}
+
+// Init
+async function initApp() {
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('regPage').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('userBadge').textContent = user.fullName;
+    document.getElementById('roleBadge').textContent = isAdmin() ? 'Yönetici' : 'Üye';
+    buildNav();
+    await loadData();
+    showPage(isAdmin() ? 'admin-home' : 'member-home');
+}
+
+function buildNav() {
+    document.getElementById('sidebar').innerHTML = isAdmin() ? `
+        <div class="nav-section">Ana Menü</div>
+        <div class="nav-item active" onclick="showPage('admin-home')">🏠 Ana Sayfa</div>
+        <div class="nav-section">Yönetim</div>
+        <div class="nav-item" onclick="showPage('books')">📚 Kitaplar</div>
+        <div class="nav-item" onclick="showPage('authors')">✍️ Yazarlar</div>
+        <div class="nav-item" onclick="showPage('categories')">📁 Kategoriler</div>
+        <div class="nav-item" onclick="showPage('users')">👥 Kullanıcılar</div>
+        <div class="nav-section">İşlemler</div>
+        <div class="nav-item" onclick="showPage('transactions')">📋 Ödünç İşlemleri</div>
+        <div class="nav-item" onclick="showPage('penalties')">⚠️ Cezalar</div>
+    ` : `
+        <div class="nav-section">Ana Menü</div>
+        <div class="nav-item active" onclick="showPage('member-home')">🏠 Ana Sayfa</div>
+        <div class="nav-item" onclick="showPage('browse')">📚 Kitaplar</div>
+        <div class="nav-section">İşlemlerim</div>
+        <div class="nav-item" onclick="showPage('my-loans')">📋 Ödünç İşlemlerim</div>
+        <div class="nav-item" onclick="showPage('my-penalties')">⚠️ Cezalarım</div>
+    `;
+}
+
+async function loadData() {
+    try {
+        [books, authors, categories] = await Promise.all([
+            api('/books'), 
+            api('/authors'), 
+            api('/categories')
+        ]);
+        if (isAdmin()) {
+            users = await api('/users');
+        }
+    } catch (e) {
+        console.error('loadData error:', e);
+        toast('Veri yüklenirken hata: ' + e.message, true);
+    }
+}
+
+function showPage(page) {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const nav = document.querySelector(`.nav-item[onclick="showPage('${page}')"]`);
+    if (nav) nav.classList.add('active');
+    
+    document.getElementById('content').innerHTML = '<div class="loading">Yükleniyor...</div>';
+    
+    const pages = {
+        'member-home': memberHome,
+        'admin-home': adminHome,
+        'browse': browsePage,
+        'books': booksPage,
+        'authors': authorsPage,
+        'categories': categoriesPage,
+        'users': usersPage,
+        'my-loans': myLoansPage,
+        'my-penalties': myPenaltiesPage,
+        'transactions': transactionsPage,
+        'penalties': penaltiesPage
+    };
+    
+    if (pages[page]) {
+        pages[page]().catch(e => {
+            console.error('Page error:', e);
+            document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+        });
+    }
+}
+
+// ==================== MEMBER PAGES ====================
+
+async function memberHome() {
+    try {
+        const [stats, txs] = await Promise.all([
+            api('/my/stats'), 
+            api('/my/transactions')
+        ]);
+        console.log('Member stats:', stats); // Debug
+        const active = txs.filter(t => !t.realReturnDate);
+        
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">🏠 Hoş Geldiniz, ${user.fullName}!</h1>
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-value">${stats.activeBorrows||0}</div><div class="stat-label">📚 Aktif Ödünç</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.totalTransactions||0}</div><div class="stat-label">📋 Toplam İşlem</div></div>
+                <div class="stat-card"><div class="stat-value">${(stats.totalPenalties||0).toFixed(2)} ₺</div><div class="stat-label">⚠️ Toplam Ceza</div></div>
+            </div>
+            <div class="card"><div class="card-header"><h3>📚 Aktif Ödünç Kitaplarım</h3></div>
+            <table><thead><tr><th>Kitap</th><th>Ödünç</th><th>İade Tarihi</th><th>Durum</th><th>İşlem</th></tr></thead>
+            <tbody>${active.length ? active.map(t => {
+                const late = new Date() > new Date(t.returnDate);
+                return `<tr><td>${t.bookTitle}</td><td>${formatDateTime(t.borrowDate)}</td><td>${formatDateTime(t.returnDate)}</td>
+                <td><span class="status ${late ? 'status-danger' : 'status-warning'}">${late ? 'Gecikmiş' : 'Ödünçte'}</span></td>
+                <td><button class="btn btn-success btn-sm" onclick="returnBook(${t.id})">İade Et</button></td></tr>`;
+            }).join('') : '<tr><td colspan="5" class="empty">Aktif ödünç yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        console.error('memberHome error:', e);
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+async function browsePage() {
+    try {
+        books = await api('/books');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">📚 Kitaplar</h1>
+            <div class="search-box"><input type="text" class="search-input" placeholder="Kitap veya yazar ara..." oninput="filterBooks(this.value)"></div>
+            <div class="books-grid" id="booksGrid"></div>
+        `;
+        renderBooks(books);
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function renderBooks(list) {
+    document.getElementById('booksGrid').innerHTML = list.length ? list.map(b => `
+        <div class="book-card"><div class="book-body">
+            <div class="book-title">${b.title}</div>
+            <div class="book-author">✍️ ${b.authorName || '-'}</div>
+            <span class="status status-info" style="margin-top:0.5rem;display:inline-block">${b.categoryName || '-'}</span>
+            <div style="margin-top:0.5rem;font-size:0.85rem;color:#64748b">📅 ${b.yearOfPublication}</div>
+        </div><div class="book-footer">
+            <span class="stock ${b.available > 0 ? 'stock-ok' : 'stock-out'}">${b.available}/${b.stockNumber}</span>
+            <button class="btn btn-primary btn-sm" onclick="borrow(${b.id})" ${b.available < 1 ? 'disabled' : ''}>${b.available > 0 ? 'Ödünç Al' : 'Yok'}</button>
+        </div></div>
+    `).join('') : '<div class="empty">Kitap bulunamadı</div>';
+}
+
+function filterBooks(q) { 
+    const filtered = books.filter(b => 
+        b.title.toLowerCase().includes(q.toLowerCase()) || 
+        (b.authorName||'').toLowerCase().includes(q.toLowerCase())
+    );
+    renderBooks(filtered); 
+}
+
+async function borrow(id) {
+    if (!confirm('Ödünç almak istiyor musunuz?')) return;
+    try { 
+        const r = await api('/borrow', 'POST', {bookId: id}); 
+        toast(r.message); 
+        browsePage(); 
+    } catch(e) { 
+        toast(e.message, true); 
+    }
+}
+
+async function returnBook(id) {
+    if (!confirm('İade etmek istiyor musunuz?')) return;
+    try { 
+        const r = await api(`/my/transactions/${id}/return`, 'POST'); 
+        toast(r.message); 
+        memberHome(); 
+    } catch(e) { 
+        toast(e.message, true); 
+    }
+}
+
+async function myLoansPage() {
+    try {
+        const txs = await api('/my/transactions');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">📋 Ödünç İşlemlerim</h1>
+            <div class="card"><table><thead><tr><th>Kitap</th><th>Ödünç</th><th>İade Tarihi</th><th>Gerçek İade</th><th>Durum</th><th>İşlem</th></tr></thead>
+            <tbody>${txs.length ? txs.map(t => {
+                const active = !t.realReturnDate;
+                const late = active && new Date() > new Date(t.returnDate);
+                return `<tr><td>${t.bookTitle}</td><td>${formatDateTime(t.borrowDate)}</td><td>${formatDateTime(t.returnDate)}</td><td>${formatDateTime(t.realReturnDate)}</td>
+                <td><span class="status ${t.realReturnDate ? 'status-success' : late ? 'status-danger' : 'status-warning'}">${t.realReturnDate ? 'İade Edildi' : late ? 'Gecikmiş' : 'Ödünçte'}</span></td>
+                <td>${active ? `<button class="btn btn-success btn-sm" onclick="returnBook(${t.id})">İade</button>` : '-'}</td></tr>`;
+            }).join('') : '<tr><td colspan="6" class="empty">İşlem yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+async function myPenaltiesPage() {
+    try {
+        const ps = await api('/my/penalties');
+        console.log('My Penalties:', ps); // Debug için
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">⚠️ Cezalarım</h1>
+            <div class="card"><table><thead><tr><th>Süre</th><th>Tutar</th><th>Tarih</th><th>İşlem</th></tr></thead>
+            <tbody>${ps.length ? ps.map(p => `<tr><td>${p.numberOfDay||0} dakika gecikme</td><td>${(p.amount||0).toFixed(2)} ₺</td><td>${formatDate(p.date)}</td>
+            <td><button class="btn btn-success btn-sm" onclick="payMyPenalty(${p.id})">💳 Öde</button></td></tr>`).join('') : '<tr><td colspan="4" class="empty">🎉 Ceza yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        console.error('myPenaltiesPage error:', e);
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+async function payMyPenalty(id) {
+    if (!confirm('Bu cezayı ödemek istiyor musunuz?')) return;
+    try { 
+        const r = await api(`/my/penalties/${id}/pay`, 'POST'); 
+        toast(r.message); 
+        myPenaltiesPage(); 
+    } catch(e) { 
+        toast(e.message, true); 
+    }
+}
+
+// ==================== ADMIN PAGES ====================
+
+async function adminHome() {
+    try {
+        const [stats, txs] = await Promise.all([api('/stats'), api('/transactions')]);
+        console.log('Admin stats:', stats); // Debug
+        const recent = txs.slice(0, 5);
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">🏠 Yönetim Paneli</h1>
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-value">${stats.totalBooks||0}</div><div class="stat-label">📚 Kitap</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.totalUsers||0}</div><div class="stat-label">👥 Kullanıcı</div></div>
+                <div class="stat-card"><div class="stat-value">${stats.activeBorrows||0}</div><div class="stat-label">📋 Aktif Ödünç</div></div>
+                <div class="stat-card"><div class="stat-value">${(stats.totalPenalties||0).toFixed(2)} ₺</div><div class="stat-label">⚠️ Toplam Ceza</div></div>
+            </div>
+            <div class="card"><div class="card-header"><h3>📋 Son İşlemler</h3></div>
+            <table><thead><tr><th>Kullanıcı</th><th>Kitap</th><th>Tarih</th><th>Durum</th></tr></thead>
+            <tbody>${recent.length ? recent.map(t => `<tr><td>${t.userName||'-'}</td><td>${t.bookTitle||'-'}</td><td>${formatDateTime(t.borrowDate)}</td>
+            <td><span class="status ${t.realReturnDate ? 'status-success' : 'status-warning'}">${t.realReturnDate ? 'İade' : 'Ödünç'}</span></td></tr>`).join('') : '<tr><td colspan="4" class="empty">İşlem yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        console.error('adminHome error:', e);
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+async function booksPage() {
+    try {
+        books = await api('/books');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">📚 Kitap Yönetimi</h1>
+            <div class="card"><div class="card-header"><input type="text" class="search-input" style="max-width:300px" placeholder="Ara..." oninput="filterAdminBooks(this.value)"><button class="btn btn-primary" onclick="bookModal()">➕ Yeni</button></div>
+            <table><thead><tr><th>ID</th><th>Başlık</th><th>Yazar</th><th>Kategori</th><th>Stok</th><th>Mevcut</th><th>Yıl</th><th>İşlem</th></tr></thead>
+            <tbody id="booksTable"></tbody></table></div>
+        `;
+        renderAdminBooks(books);
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function renderAdminBooks(list) {
+    document.getElementById('booksTable').innerHTML = list.map(b => `<tr><td>${b.id}</td><td>${b.title}</td><td>${b.authorName||'-'}</td><td>${b.categoryName||'-'}</td><td>${b.stockNumber}</td><td>${b.available}</td><td>${b.yearOfPublication}</td>
+    <td><button class="btn btn-secondary btn-sm" onclick="bookModal(${b.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="delBook(${b.id})">🗑️</button></td></tr>`).join('');
+}
+
+function filterAdminBooks(q) { 
+    renderAdminBooks(books.filter(b => b.title.toLowerCase().includes(q.toLowerCase()))); 
+}
+
+function bookModal(id = null) {
+    const b = id ? books.find(x => x.id === id) : {};
+    openModal(`<div class="modal-header"><h3>${id ? 'Düzenle' : 'Yeni Kitap'}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body"><form id="bookForm">
+        <div class="form-group"><label class="form-label">Başlık</label><input class="form-input" name="title" value="${b.title||''}" required></div>
+        <div class="form-group"><label class="form-label">Yazar</label><select class="form-select" name="authorId" required><option value="">Seç...</option>${authors.map(a => `<option value="${a.id}" ${a.id===b.authorId?'selected':''}>${a.fullName}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Kategori</label><select class="form-select" name="categoryId" required><option value="">Seç...</option>${categories.map(c => `<option value="${c.id}" ${c.id===b.categoryId?'selected':''}>${c.name}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Stok</label><input type="number" class="form-input" name="stockNumber" value="${b.stockNumber||1}" min="1"></div>
+        <div class="form-group"><label class="form-label">Yayın Yılı</label><input type="number" class="form-input" name="yearOfPublication" value="${b.yearOfPublication||2024}"></div>
+    </form></div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">İptal</button><button class="btn btn-primary" onclick="saveBook(${id})">Kaydet</button></div>`);
+}
+
+async function saveBook(id) {
+    const f = new FormData(document.getElementById('bookForm'));
+    const d = {title: f.get('title'), authorId: +f.get('authorId'), categoryId: +f.get('categoryId'), stockNumber: +f.get('stockNumber'), yearOfPublication: +f.get('yearOfPublication')};
+    try { await api(id ? `/books/${id}` : '/books', id ? 'PUT' : 'POST', d); toast('Kaydedildi'); closeModal(); booksPage(); } catch(e) { toast(e.message, true); }
+}
+
+async function delBook(id) { if (!confirm('Sil?')) return; try { await api(`/books/${id}`, 'DELETE'); toast('Silindi'); booksPage(); } catch(e) { toast(e.message, true); } }
+
+async function authorsPage() {
+    try {
+        authors = await api('/authors');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">✍️ Yazar Yönetimi</h1>
+            <div class="card"><div class="card-header"><span></span><button class="btn btn-primary" onclick="authorModal()">➕ Yeni</button></div>
+            <table><thead><tr><th>ID</th><th>Ad</th><th>Soyad</th><th>Ülke</th><th>İşlem</th></tr></thead>
+            <tbody>${authors.map(a => `<tr><td>${a.id}</td><td>${a.name}</td><td>${a.lastName}</td><td>${a.country||'-'}</td>
+            <td><button class="btn btn-secondary btn-sm" onclick="authorModal(${a.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="delAuthor(${a.id})">🗑️</button></td></tr>`).join('')}</tbody></table></div>
+        `;
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function authorModal(id = null) {
+    const a = id ? authors.find(x => x.id === id) : {};
+    openModal(`<div class="modal-header"><h3>${id ? 'Düzenle' : 'Yeni Yazar'}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body"><form id="authorForm">
+        <div class="form-group"><label class="form-label">Ad</label><input class="form-input" name="name" value="${a.name||''}" required></div>
+        <div class="form-group"><label class="form-label">Soyad</label><input class="form-input" name="lastName" value="${a.lastName||''}" required></div>
+        <div class="form-group"><label class="form-label">Ülke</label><input class="form-input" name="country" value="${a.country||''}"></div>
+    </form></div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">İptal</button><button class="btn btn-primary" onclick="saveAuthor(${id})">Kaydet</button></div>`);
+}
+
+async function saveAuthor(id) {
+    const d = Object.fromEntries(new FormData(document.getElementById('authorForm')));
+    try { await api(id ? `/authors/${id}` : '/authors', id ? 'PUT' : 'POST', d); toast('Kaydedildi'); closeModal(); authorsPage(); loadData(); } catch(e) { toast(e.message, true); }
+}
+
+async function delAuthor(id) { if (!confirm('Sil?')) return; try { await api(`/authors/${id}`, 'DELETE'); toast('Silindi'); authorsPage(); } catch(e) { toast(e.message, true); } }
+
+async function categoriesPage() {
+    try {
+        categories = await api('/categories');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">📁 Kategori Yönetimi</h1>
+            <div class="card"><div class="card-header"><span></span><button class="btn btn-primary" onclick="catModal()">➕ Yeni</button></div>
+            <table><thead><tr><th>ID</th><th>Ad</th><th>İşlem</th></tr></thead>
+            <tbody>${categories.map(c => `<tr><td>${c.id}</td><td>${c.name}</td>
+            <td><button class="btn btn-secondary btn-sm" onclick="catModal(${c.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="delCat(${c.id})">🗑️</button></td></tr>`).join('')}</tbody></table></div>
+        `;
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function catModal(id = null) {
+    const c = id ? categories.find(x => x.id === id) : {};
+    openModal(`<div class="modal-header"><h3>${id ? 'Düzenle' : 'Yeni Kategori'}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body"><form id="catForm">
+        <div class="form-group"><label class="form-label">Ad</label><input class="form-input" name="name" value="${c.name||''}" required></div>
+    </form></div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">İptal</button><button class="btn btn-primary" onclick="saveCat(${id})">Kaydet</button></div>`);
+}
+
+async function saveCat(id) {
+    const d = Object.fromEntries(new FormData(document.getElementById('catForm')));
+    try { await api(id ? `/categories/${id}` : '/categories', id ? 'PUT' : 'POST', d); toast('Kaydedildi'); closeModal(); categoriesPage(); loadData(); } catch(e) { toast(e.message, true); }
+}
+
+async function delCat(id) { if (!confirm('Sil?')) return; try { await api(`/categories/${id}`, 'DELETE'); toast('Silindi'); categoriesPage(); } catch(e) { toast(e.message, true); } }
+
+async function usersPage() {
+    try {
+        users = await api('/users');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">👥 Kullanıcı Yönetimi</h1>
+            <div class="card"><div class="card-header"><span></span><button class="btn btn-primary" onclick="userModal()">➕ Yeni</button></div>
+            <table><thead><tr><th>ID</th><th>Ad Soyad</th><th>Email</th><th>Rol</th><th>İşlem</th></tr></thead>
+            <tbody>${users.map(u => `<tr><td>${u.id}</td><td>${u.fullName}</td><td>${u.email}</td><td><span class="status status-info">${u.role==='admin'?'Yönetici':'Üye'}</span></td>
+            <td><button class="btn btn-secondary btn-sm" onclick="userModal(${u.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="delUser(${u.id})">🗑️</button></td></tr>`).join('')}</tbody></table></div>
+        `;
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function userModal(id = null) {
+    const u = id ? users.find(x => x.id === id) : {};
+    openModal(`<div class="modal-header"><h3>${id ? 'Düzenle' : 'Yeni Kullanıcı'}</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body"><form id="userForm">
+        <div class="form-group"><label class="form-label">Ad Soyad</label><input class="form-input" name="fullName" value="${u.fullName||''}" required></div>
+        <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" name="email" value="${u.email||''}" required></div>
+        <div class="form-group"><label class="form-label">Rol</label><select class="form-select" name="role"><option value="user" ${u.role==='user'?'selected':''}>Üye</option><option value="admin" ${u.role==='admin'?'selected':''}>Yönetici</option></select></div>
+        ${id ? '' : '<div class="form-group"><label class="form-label">Şifre</label><input type="password" class="form-input" name="password" required></div>'}
+    </form></div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">İptal</button><button class="btn btn-primary" onclick="saveUser(${id})">Kaydet</button></div>`);
+}
+
+async function saveUser(id) {
+    const d = Object.fromEntries(new FormData(document.getElementById('userForm')));
+    try { await api(id ? `/users/${id}` : '/users', id ? 'PUT' : 'POST', d); toast('Kaydedildi'); closeModal(); usersPage(); } catch(e) { toast(e.message, true); }
+}
+
+async function delUser(id) { if (!confirm('Sil?')) return; try { await api(`/users/${id}`, 'DELETE'); toast('Silindi'); usersPage(); } catch(e) { toast(e.message, true); } }
+
+async function transactionsPage() {
+    try {
+        const txs = await api('/transactions');
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">📋 Ödünç İşlemleri</h1>
+            <div class="card"><div class="card-header"><span></span><button class="btn btn-primary" onclick="txModal()">➕ Yeni</button></div>
+            <table><thead><tr><th>ID</th><th>Kullanıcı</th><th>Kitap</th><th>Ödünç</th><th>İade Tarihi</th><th>Gerçek İade</th><th>Durum</th></tr></thead>
+            <tbody>${txs.length ? txs.map(t => `<tr><td>${t.id}</td><td>${t.userName}</td><td>${t.bookTitle}</td><td>${formatDateTime(t.borrowDate)}</td><td>${formatDateTime(t.returnDate)}</td><td>${formatDateTime(t.realReturnDate)}</td>
+            <td><span class="status ${t.realReturnDate ? 'status-success' : 'status-warning'}">${t.realReturnDate ? 'İade Edildi' : 'Ödünçte'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="empty">İşlem yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+function txModal() {
+    openModal(`<div class="modal-header"><h3>Yeni İşlem</h3><button class="modal-close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body"><form id="txForm">
+        <div class="form-group"><label class="form-label">Kullanıcı</label><select class="form-select" name="userId" required><option value="">Seç...</option>${users.map(u => `<option value="${u.id}">${u.fullName}</option>`).join('')}</select></div>
+        <div class="form-group"><label class="form-label">Kitap</label><select class="form-select" name="bookId" required><option value="">Seç...</option>${books.filter(b=>b.available>0).map(b => `<option value="${b.id}">${b.title}</option>`).join('')}</select></div>
+    </form></div><div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">İptal</button><button class="btn btn-primary" onclick="saveTx()">Kaydet</button></div>`);
+}
+
+async function saveTx() {
+    const f = new FormData(document.getElementById('txForm'));
+    try { await api('/transactions', 'POST', {userId: +f.get('userId'), bookId: +f.get('bookId')}); toast('Oluşturuldu'); closeModal(); transactionsPage(); } catch(e) { toast(e.message, true); }
+}
+
+async function penaltiesPage() {
+    try {
+        const ps = await api('/penalties');
+        console.log('Penalties:', ps); // Debug için
+        document.getElementById('content').innerHTML = `
+            <h1 class="page-title">⚠️ Cezalar</h1>
+            <div class="card">
+            <table><thead><tr><th>ID</th><th>Kullanıcı</th><th>Süre</th><th>Tutar</th><th>Tarih</th></tr></thead>
+            <tbody>${ps.length ? ps.map(p => `<tr><td>${p.id}</td><td>${p.userName||'-'}</td><td>${p.numberOfDay||0} dakika</td><td>${(p.amount||0).toFixed(2)} ₺</td><td>${formatDate(p.date)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">Ceza yok</td></tr>'}</tbody></table></div>
+        `;
+    } catch (e) {
+        console.error('penaltiesPage error:', e);
+        document.getElementById('content').innerHTML = `<div class="empty">Hata: ${e.message}</div>`;
+    }
+}
+
+// Modal
+function openModal(html) { document.getElementById('modalBox').innerHTML = html; document.getElementById('modal').classList.add('active'); }
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+document.getElementById('modal').onclick = e => { if (e.target === e.currentTarget) closeModal(); };
+
+// Init
+if (token && user) initApp();
+</script>
+</body>
+</html>
 
