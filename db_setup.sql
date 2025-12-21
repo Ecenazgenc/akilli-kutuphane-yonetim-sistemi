@@ -181,3 +181,122 @@ INNER JOIN Users u ON o.UserId = u.Id
 WHERE o.RealReturnDate IS NULL;
 
 GO
+
+
+
+INSERT INTO Users (FullName,PasswordHash,Email)
+VALUES 
+('Enes Kuru', 'enes@example.com', 'kuruenes123'),
+('Zehra Dolak', 'zehra@example.com', '49zehra8'),
+('Ada Korkak', 'ada@example.com', 'adakor123');
+
+
+INSERT INTO Authors(Name, LastName,Country)
+VALUES 
+('Helen', 'Kennerley','İngiltere'),
+('Stefan', 'Zweig','Avusturya');
+
+INSERT INTO Categories(Name)
+VALUES 
+('Roman'),
+('Hikaye');
+
+
+INSERT INTO Books(Title,AuthorId,CategoryId,StockNumber,YearOfpublication)
+VALUES 
+('Kaygı',2, 1, 67, 2022),
+('Bir Çöküşün Öyküsü',3 ,2, 39, 1998);
+
+INSERT INTO BorrowTransactions(BookId,UserId,BorrowDate,ReturnDate,State)
+VALUES 
+(8, 1, '2025-11-05', '2025-11-15','alındı'),
+(9, 2, '2025-11-18', '2025-11-28','alındı');
+
+USE KutuphaneDB;
+Go
+/*eger bu adda bir prosedur varsa siler*/
+IF OBJECT_ID('sp_Borrow', 'P') IS NOT NULL 
+    DROP PROCEDURE sp_Borrow;
+GO
+CREATE PROCEDURE sp_Borrow
+    @islem NVARCHAR(10), -- 'Al' veya 'Iade'
+    @kullaniciID INT = NULL,
+    @oduncID INT = NULL,
+    @odunc_tarihi DATE = NULL,
+    @iade_tarihi DATE = NULL,
+    @gercek_iade_tarihi DATE = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    /*odunc alma*/
+    IF @islem = 'Al'
+    BEGIN
+        INSERT INTO BorrowTransactions(UserId,BorrowDate,ReturnDate,State)
+        VALUES (@kullaniciID, @odunc_tarihi, @iade_tarihi,'alındı');
+
+    END
+    ELSE IF @islem = 'Iade'
+    BEGIN
+        
+        UPDATE BorrowTransactions
+        SET RealReturnDate = @gercek_iade_tarihi,
+            State = 'İade Edildi'
+        WHERE Id = @oduncID;
+
+    END
+END;
+GO
+
+/*gec iade islemleri icin trigger*/
+USE KutuphaneDB ;
+GO
+
+/* trigger varsa önce siler*/
+IF OBJECT_ID('trg_GecIadeCeza', 'TR') IS NOT NULL
+    DROP TRIGGER trg_GecIadeCeza;
+GO
+
+CREATE TRIGGER trg_GecIadeCeza
+ON BorrowTransactions
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    /*Gecikme varsa ve ceza eklenmemişse Ceza tablosuna ekle*/
+    INSERT INTO Penalties(BorrowTransactionsId,NumberOfDay, Amount)
+    SELECT 
+        i.BorrowTransactionsId,
+        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) AS NumberOfDay,
+        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) * 5.0 AS Amount,
+
+    FROM inserted i
+    LEFT JOIN Penalties c ON i.BorrowTransactionsId = c.BorrowTransactionsId
+    WHERE i.RealReturnDate > i.ReturnDate
+      AND c.BorrowTransactionsId IS NULL;
+END;
+GO
+USE KutuphaneDB;
+GO
+
+-- Eğer view varsa sil
+IF OBJECT_ID('vw_AktifOdunc', 'V') IS NOT NULL
+    DROP VIEW vw_AktifOdunc;
+GO
+
+CREATE VIEW vw_AktifOdunc
+AS
+SELECT 
+    o.Id,
+    b.Title AS kitap_basligi,
+    y.Name + ' ' + y.LastName AS Authors,
+    u.FullName AS Users,
+    o.BorrowDate,
+    o.ReturnDate,
+    o.state
+FROM BorrowTransactions o
+INNER JOIN Books b ON o.BookId = b.Id
+INNER JOIN Authors y ON b.AuthorId = y.ID
+INNER JOIN Users u ON o.UserId = u.Id
+WHERE o.RealReturnDate IS NULL;
+GO
