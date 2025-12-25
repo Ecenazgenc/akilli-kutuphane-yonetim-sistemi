@@ -1,15 +1,9 @@
-"""
-BorrowTransaction Entity - Ödünç İşlemi Veri Modeli
-"""
-
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
 
-
 @dataclass
 class BorrowTransaction:
-    """Ödünç İşlemi Entity"""
     Id: int
     BookId: int
     UserId: int
@@ -20,7 +14,6 @@ class BorrowTransaction:
     UserName: Optional[str] = None
     
     def to_dict(self) -> dict:
-        """Entity'yi dictionary'e çevirir"""
         return {
             "id": self.Id,
             "bookId": self.BookId,
@@ -34,11 +27,4 @@ class BorrowTransaction:
         }
     
     def is_returned(self) -> bool:
-        """İade edilmiş mi kontrol eder"""
         return self.RealReturnDate is not None
-    
-    def is_late(self) -> bool:
-        """Gecikmiş mi kontrol eder"""
-        if self.RealReturnDate:
-            return self.RealReturnDate > self.ReturnDate
-        return datetime.now() > self.ReturnDate
