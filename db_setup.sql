@@ -1,302 +1,406 @@
+/*
+=============================================================================
+KUTUPHANE_DB.SQL - VERİTABANI + TRIGGER + STORED PROCEDURE
+=============================================================================
+
+CEZA SİSTEMİ:
+- İade süresi: 1 dakika
+- Gecikme cezası: 5 TL / dakika
+
+SQL BİLEŞENLERİ:
+- trg_CalculatePenalty: Otomatik ceza hesaplama (TRIGGER)
+- sp_BorrowBook: Kitap ödünç alma (PROCEDURE)
+- sp_ReturnBook: Kitap iade etme (PROCEDURE)
+- sp_PayPenalty: Ceza ödeme (PROCEDURE)
+=============================================================================
+*/
+
+-- Veritabanı oluşturma
+IF EXISTS (SELECT name FROM sys.databases WHERE name = 'KutuphaneDB')
+BEGIN
+    ALTER DATABASE KutuphaneDB SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE KutuphaneDB;
+END
+GO
+
 CREATE DATABASE KutuphaneDB;
 GO
+
 USE KutuphaneDB;
+GO
+
+-- =============================================
+-- TABLOLAR
+-- =============================================
+
+CREATE TABLE Users (
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    FullName NVARCHAR(100) NOT NULL,
+    Email NVARCHAR(100) NOT NULL UNIQUE,
+    PasswordHash NVARCHAR(256) NOT NULL,
+    Role NVARCHAR(20) NOT NULL DEFAULT 'user'
+);
 GO
 
 CREATE TABLE Authors (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    Name NVARCHAR(100) NOT NULL,
-    LastName NVARCHAR(100) NOT NULL,
-    Country NVARCHAR(100) NOT NULL
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(50) NOT NULL,
+    LastName NVARCHAR(50) NOT NULL,
+    Country NVARCHAR(50)
 );
+GO
 
 CREATE TABLE Categories (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    Name NVARCHAR(100) NOT NULL
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(50) NOT NULL
 );
+GO
 
 CREATE TABLE Books (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Id INT PRIMARY KEY IDENTITY(1,1),
     Title NVARCHAR(200) NOT NULL,
     AuthorId INT NOT NULL,
     CategoryId INT NOT NULL,
-    StockNumber INT NOT NULL,
-    YearOfpublication INT NOT NULL,
+    StockNumber INT NOT NULL DEFAULT 1,
+    YearOfpublication INT,
+    CONSTRAINT FK_Books_Authors FOREIGN KEY (AuthorId) REFERENCES Authors(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_Books_Categories FOREIGN KEY (CategoryId) REFERENCES Categories(Id) ON DELETE CASCADE
+);
+GO
 
-    FOREIGN KEY (AuthorId) REFERENCES Authors(Id),
-    FOREIGN KEY (CategoryId) REFERENCES Categories(Id)
-);
-CREATE TABLE Users (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    FullName NVARCHAR(200) NOT NULL,
-    Email NVARCHAR(100) NOT NULL UNIQUE,
-    PasswordHash NVARCHAR(500) NOT NULL,
-    Role NVARCHAR(20) NOT NULL -- admin / user
-);
 CREATE TABLE BorrowTransactions (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
+    Id INT PRIMARY KEY IDENTITY(1,1),
     BookId INT NOT NULL,
     UserId INT NOT NULL,
-    BorrowDate DATETIME NOT NULL DEFAULT GETDATE(),
+    BorrowDate DATETIME NOT NULL,
     ReturnDate DATETIME NOT NULL,
-    RealReturnDate DATETIME,
-
-    FOREIGN KEY (BookId) REFERENCES Books(Id),
-    FOREIGN KEY (UserId) REFERENCES Users(Id)
+    RealReturnDate DATETIME NULL,
+    CONSTRAINT FK_BorrowTransactions_Books FOREIGN KEY (BookId) REFERENCES Books(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_BorrowTransactions_Users FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
 );
-    CREATE TABLE Penalties (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    Amount DECIMAL(10,2) NOT NULL,
-    BorrowTransactionsId INT ,
-    NumberOfDay INT NOT NULL ,
-    Date DATE NOT NULL DEFAULT GETDATE(),
-
-    FOREIGN KEY (BorrowTransactionsId) REFERENCES BorrowTransactions(Id)
-);
---Tablolara yapılan eklemeler;
-INSERT INTO Users (FullName, Email, PasswordHash, Role)
-VALUES 
-('Enes Kuru', 'enes@example.com', 'kuruenes123', 'user'),
-('Zehra Dolak', 'zehra@example.com', '49zehra8', 'user'),
-('Ada Korkak', 'ada@example.com', 'adakor123', 'user');
-
-INSERT INTO Authors(Name, LastName,Country)
-VALUES 
-('Helen', 'Kennerley','İngiltere'),
-('Stefan', 'Zweig','Avusturya');
-
-INSERT INTO Categories(Name)
-VALUES 
-('Roman'),
-('Hikaye');
-
-
-INSERT INTO Books(Title,AuthorId,CategoryId,StockNumber,YearOfpublication)
-VALUES 
-('Kaygı',2, 1, 67, 2022),
-('Bir Çöküşün Öyküsü',1 ,2, 39, 1998);
-
-INSERT INTO BorrowTransactions(BookId,UserId,BorrowDate,ReturnDate,State)
-VALUES 
-(8, 1, '2025-11-05', '2025-11-15','alındı'),
-(9, 2, '2025-11-18', '2025-11-28','alındı');
-
-USE KutuphaneDB;
-Go
-/*eger bu adda bir prosedur varsa siler*/
-IF OBJECT_ID('sp_Borrow', 'P') IS NOT NULL 
-    DROP PROCEDURE sp_Borrow;
 GO
-CREATE PROCEDURE sp_Borrow
-    @islem NVARCHAR(10), -- 'Al' veya 'Iade'
-    @kullaniciID INT = NULL,
-    @oduncID INT = NULL,
-    @odunc_tarihi DATE = NULL,
-    @iade_tarihi DATE = NULL,
-    @gercek_iade_tarihi DATE = NULL
+
+CREATE TABLE Penalties (
+    Id INT PRIMARY KEY IDENTITY(1,1),
+    BorrowTransactionsId INT NOT NULL,
+    NumberOfDay INT NOT NULL,
+    Amount DECIMAL(10,2) NOT NULL,
+    CreatedDate DATETIME DEFAULT GETDATE(),
+    CONSTRAINT FK_Penalties_BorrowTransactions FOREIGN KEY (BorrowTransactionsId) REFERENCES BorrowTransactions(Id) ON DELETE CASCADE
+);
+GO
+
+-- =============================================
+-- TRIGGER: trg_CalculatePenalty
+-- İade yapıldığında otomatik ceza hesaplar
+-- =============================================
+CREATE TRIGGER trg_CalculatePenalty
+ON BorrowTransactions
+AFTER UPDATE
 AS
 BEGIN
     SET NOCOUNT ON;
-    /*odunc alma*/
-    IF @islem = 'Al'
+    
+    DECLARE @TransactionId INT;
+    DECLARE @ReturnDate DATETIME;
+    DECLARE @RealReturnDate DATETIME;
+    DECLARE @OldRealReturnDate DATETIME;
+    DECLARE @DelayMinutes INT;
+    DECLARE @PenaltyAmount DECIMAL(10,2);
+    DECLARE @PenaltyPerMinute DECIMAL(10,2) = 5.00; -- 5 TL/dakika
+    
+    SELECT 
+        @TransactionId = i.Id,
+        @ReturnDate = i.ReturnDate,
+        @RealReturnDate = i.RealReturnDate,
+        @OldRealReturnDate = d.RealReturnDate
+    FROM inserted i
+    INNER JOIN deleted d ON i.Id = d.Id;
+    
+    -- RealReturnDate NULL'dan değere geçtiyse (iade yapılıyor)
+    IF @OldRealReturnDate IS NULL AND @RealReturnDate IS NOT NULL
     BEGIN
-         IF EXISTS (SELECT 1 FROM Books WHERE Id = @bookId AND StockNumber > 0)
+        -- Gecikme var mı?
+        IF @RealReturnDate > @ReturnDate
         BEGIN
-            INSERT INTO BorrowTransactions(BookId, UserId, BorrowDate, ReturnDate, State)
-            VALUES (@bookId, @kullaniciID, ISNULL(@odunc_tarihi, GETDATE()), @iade_tarihi, 'alındı');
+            SET @DelayMinutes = DATEDIFF(MINUTE, @ReturnDate, @RealReturnDate);
+            IF @DelayMinutes < 1 SET @DelayMinutes = 1;
+            
+            SET @PenaltyAmount = @DelayMinutes * @PenaltyPerMinute;
+            
+            INSERT INTO Penalties (BorrowTransactionsId, NumberOfDay, Amount, CreatedDate)
+            VALUES (@TransactionId, @DelayMinutes, @PenaltyAmount, GETDATE());
+        END
+    END
+END;
+GO
 
-            -- stok azaltma
-            UPDATE Books SET StockNumber = StockNumber - 1 WHERE Id = @bookId;
+-- =============================================
+-- STORED PROCEDURE: sp_BorrowBook
+-- Kitap ödünç alma
+-- =============================================
+CREATE PROCEDURE sp_BorrowBook
+    @BookId INT,
+    @UserId INT,
+    @LoanDurationMinutes INT = 1,
+    @NewTransactionId INT OUTPUT,
+    @ErrorMessage NVARCHAR(500) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    
+    DECLARE @AvailableStock INT;
+    DECLARE @BorrowDate DATETIME;
+    DECLARE @ReturnDate DATETIME;
+    DECLARE @HasActiveBorrow INT;
+    DECLARE @HasUnpaidPenalty INT;
+    
+    SET @NewTransactionId = 0;
+    SET @ErrorMessage = '';
+    SET @BorrowDate = GETDATE();
+    SET @ReturnDate = DATEADD(MINUTE, @LoanDurationMinutes, @BorrowDate);
+    
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        -- Kitap var mı?
+        IF NOT EXISTS (SELECT 1 FROM Books WHERE Id = @BookId)
+        BEGIN
+            SET @ErrorMessage = 'Kitap bulunamadı';
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+        
+        -- Stokta var mı?
+        SELECT @AvailableStock = b.StockNumber - ISNULL((
+            SELECT COUNT(*) FROM BorrowTransactions bt 
+            WHERE bt.BookId = b.Id AND bt.RealReturnDate IS NULL
+        ), 0)
+        FROM Books b WHERE b.Id = @BookId;
+        
+        IF @AvailableStock <= 0
+        BEGIN
+            SET @ErrorMessage = 'Kitap stokta yok';
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+        
+        -- Aynı kitabı zaten almış mı?
+        SELECT @HasActiveBorrow = COUNT(*) 
+        FROM BorrowTransactions 
+        WHERE UserId = @UserId AND BookId = @BookId AND RealReturnDate IS NULL;
+        
+        IF @HasActiveBorrow > 0
+        BEGIN
+            SET @ErrorMessage = 'Bu kitabı zaten ödünç almışsınız';
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+        
+        -- Ödenmemiş ceza var mı?
+        SELECT @HasUnpaidPenalty = COUNT(*) 
+        FROM Penalties p
+        INNER JOIN BorrowTransactions bt ON p.BorrowTransactionsId = bt.Id
+        WHERE bt.UserId = @UserId;
+        
+        IF @HasUnpaidPenalty > 0
+        BEGIN
+            SET @ErrorMessage = 'Ödenmemiş cezanız var. Önce cezanızı ödeyin.';
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+        
+        -- İşlemi kaydet
+        INSERT INTO BorrowTransactions (BookId, UserId, BorrowDate, ReturnDate)
+        VALUES (@BookId, @UserId, @BorrowDate, @ReturnDate);
+        
+        SET @NewTransactionId = SCOPE_IDENTITY();
+        
+        COMMIT TRANSACTION;
+        
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        SET @ErrorMessage = ERROR_MESSAGE();
+    END CATCH
+END;
+GO
+
+-- =============================================
+-- STORED PROCEDURE: sp_ReturnBook
+-- Kitap iade etme
+-- =============================================
+CREATE PROCEDURE sp_ReturnBook
+    @TransactionId INT,
+    @UserId INT,
+    @Success BIT OUTPUT,
+    @Message NVARCHAR(500) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    
+    DECLARE @ActualUserId INT;
+    DECLARE @RealReturnDate DATETIME;
+    DECLARE @ReturnDate DATETIME;
+    DECLARE @BookTitle NVARCHAR(200);
+    DECLARE @DelayMinutes INT;
+    
+    SET @Success = 0;
+    SET @Message = '';
+    
+    BEGIN TRY
+        SELECT 
+            @ActualUserId = bt.UserId,
+            @RealReturnDate = bt.RealReturnDate,
+            @ReturnDate = bt.ReturnDate,
+            @BookTitle = b.Title
+        FROM BorrowTransactions bt
+        INNER JOIN Books b ON bt.BookId = b.Id
+        WHERE bt.Id = @TransactionId;
+        
+        IF @ActualUserId IS NULL
+        BEGIN
+            SET @Message = 'İşlem bulunamadı';
+            RETURN;
+        END
+        
+        IF @ActualUserId <> @UserId
+        BEGIN
+            SET @Message = 'Bu işlem size ait değil';
+            RETURN;
+        END
+        
+        IF @RealReturnDate IS NOT NULL
+        BEGIN
+            SET @Message = 'Kitap zaten iade edilmiş';
+            RETURN;
+        END
+        
+        -- İade işlemi (Trigger ceza hesaplayacak)
+        UPDATE BorrowTransactions 
+        SET RealReturnDate = GETDATE()
+        WHERE Id = @TransactionId;
+        
+        -- Mesaj oluştur
+        DECLARE @NewRealReturnDate DATETIME;
+        SELECT @NewRealReturnDate = RealReturnDate FROM BorrowTransactions WHERE Id = @TransactionId;
+        
+        IF @NewRealReturnDate > @ReturnDate
+        BEGIN
+            SET @DelayMinutes = DATEDIFF(MINUTE, @ReturnDate, @NewRealReturnDate);
+            IF @DelayMinutes < 1 SET @DelayMinutes = 1;
+            
+            SET @Message = '''' + @BookTitle + ''' iade edildi. ' + 
+                          CAST(@DelayMinutes AS VARCHAR) + ' dakika gecikme için ' + 
+                          CAST(@DelayMinutes * 5 AS VARCHAR) + ' TL ceza kesildi!';
         END
         ELSE
         BEGIN
-            RAISERROR('Kitap stokta yok.', 16, 1);
+            SET @Message = '''' + @BookTitle + ''' başarıyla iade edildi. Teşekkürler!';
         END
-    END       
-    ELSE IF @islem = 'Iade'
-    BEGIN
-        UPDATE BorrowTransactions
-        SET RealReturnDate = @gercek_iade_tarihi,
-            State = 'İade Edildi'
-        WHERE Id = @oduncID;
-        DECLARE @bId INT;
-        SELECT @bId = BookId FROM BorrowTransactions WHERE Id = @oduncID;
-        IF @bId IS NOT NULL
-            UPDATE Books SET StockNumber = StockNumber + 1 WHERE Id = @bId;
-    END
-END;
-GO
-
-/*gec iade islemleri icin trigger*/
-USE KutuphaneDB ;
-GO
-
-/* trigger varsa önce siler*/
-IF OBJECT_ID('trg_GecIadeCeza', 'TR') IS NOT NULL
-    DROP TRIGGER trg_GecIadeCeza;
-GO
-
-CREATE TRIGGER trg_GecIadeCeza
-ON BorrowTransactions
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    /*Gecikme varsa ve ceza eklenmemişse Ceza tablosuna ekle*/
-    INSERT INTO Penalties(BorrowTransactionsId,NumberOfDay, Amount)
-    SELECT 
-        i.BorrowTransactionsId,
-        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) AS NumberOfDay,
-        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) * 5.0 AS Amount,
-        CONVERT(date, GETDATE())
-    FROM inserted i
-    LEFT JOIN Penalties c ON i.BorrowTransactionsId = c.BorrowTransactionsId
-    WHERE i.RealReturnDate > i.ReturnDate
-      AND c.BorrowTransactionsId IS NULL;
-END;
-GO
-USE KutuphaneDB;
-GO
-
--- Eğer view varsa sil
-IF OBJECT_ID('vw_AktifOdunc', 'V') IS NOT NULL
-    DROP VIEW vw_AktifOdunc;
-GO
-
-CREATE VIEW vw_AktifOdunc
-AS
-SELECT 
-    o.Id,
-    b.Title AS kitap_basligi,
-    a.Name + ' ' + a.LastName AS Authors,
-    u.FullName AS Users,
-    o.BorrowDate,
-    o.ReturnDate,
-    o.state
-FROM BorrowTransactions o
-INNER JOIN Books b ON o.BookId = b.Id
-INNER JOIN Authors a ON b.AuthorId = a.ID
-INNER JOIN Users u ON o.UserId = u.Id
-WHERE o.RealReturnDate IS NULL;
-
-GO
-
-
-
-INSERT INTO Users (FullName,PasswordHash,Email)
-VALUES 
-('Enes Kuru', 'enes@example.com', 'kuruenes123'),
-('Zehra Dolak', 'zehra@example.com', '49zehra8'),
-('Ada Korkak', 'ada@example.com', 'adakor123');
-
-
-INSERT INTO Authors(Name, LastName,Country)
-VALUES 
-('Helen', 'Kennerley','İngiltere'),
-('Stefan', 'Zweig','Avusturya');
-
-INSERT INTO Categories(Name)
-VALUES 
-('Roman'),
-('Hikaye');
-
-
-INSERT INTO Books(Title,AuthorId,CategoryId,StockNumber,YearOfpublication)
-VALUES 
-('Kaygı',2, 1, 67, 2022),
-('Bir Çöküşün Öyküsü',3 ,2, 39, 1998);
-
-INSERT INTO BorrowTransactions(BookId,UserId,BorrowDate,ReturnDate,State)
-VALUES 
-(8, 1, '2025-11-05', '2025-11-15','alındı'),
-(9, 2, '2025-11-18', '2025-11-28','alındı');
-
-USE KutuphaneDB;
-Go
-/*eger bu adda bir prosedur varsa siler*/
-IF OBJECT_ID('sp_Borrow', 'P') IS NOT NULL 
-    DROP PROCEDURE sp_Borrow;
-GO
-CREATE PROCEDURE sp_Borrow
-    @islem NVARCHAR(10), -- 'Al' veya 'Iade'
-    @kullaniciID INT = NULL,
-    @oduncID INT = NULL,
-    @odunc_tarihi DATE = NULL,
-    @iade_tarihi DATE = NULL,
-    @gercek_iade_tarihi DATE = NULL
-AS
-BEGIN
-    SET NOCOUNT ON;
-    /*odunc alma*/
-    IF @islem = 'Al'
-    BEGIN
-        INSERT INTO BorrowTransactions(UserId,BorrowDate,ReturnDate,State)
-        VALUES (@kullaniciID, @odunc_tarihi, @iade_tarihi,'alındı');
-
-    END
-    ELSE IF @islem = 'Iade'
-    BEGIN
         
-        UPDATE BorrowTransactions
-        SET RealReturnDate = @gercek_iade_tarihi,
-            State = 'İade Edildi'
-        WHERE Id = @oduncID;
-
-    END
+        SET @Success = 1;
+        
+    END TRY
+    BEGIN CATCH
+        SET @Message = ERROR_MESSAGE();
+    END CATCH
 END;
 GO
 
-/*gec iade islemleri icin trigger*/
-USE KutuphaneDB ;
-GO
-
-/* trigger varsa önce siler*/
-IF OBJECT_ID('trg_GecIadeCeza', 'TR') IS NOT NULL
-    DROP TRIGGER trg_GecIadeCeza;
-GO
-
-CREATE TRIGGER trg_GecIadeCeza
-ON BorrowTransactions
-AFTER UPDATE
+-- =============================================
+-- STORED PROCEDURE: sp_PayPenalty
+-- Ceza ödeme
+-- =============================================
+CREATE PROCEDURE sp_PayPenalty
+    @PenaltyId INT,
+    @UserId INT,
+    @Success BIT OUTPUT,
+    @Message NVARCHAR(500) OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
-
-    /*Gecikme varsa ve ceza eklenmemişse Ceza tablosuna ekle*/
-    INSERT INTO Penalties(BorrowTransactionsId,NumberOfDay, Amount)
-    SELECT 
-        i.BorrowTransactionsId,
-        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) AS NumberOfDay,
-        DATEDIFF(DAY, i.ReturnDate, i.RealReturnDate) * 5.0 AS Amount,
-
-    FROM inserted i
-    LEFT JOIN Penalties c ON i.BorrowTransactionsId = c.BorrowTransactionsId
-    WHERE i.RealReturnDate > i.ReturnDate
-      AND c.BorrowTransactionsId IS NULL;
+    SET XACT_ABORT ON;
+    
+    DECLARE @Amount DECIMAL(10,2);
+    DECLARE @ActualUserId INT;
+    
+    SET @Success = 0;
+    SET @Message = '';
+    
+    SELECT @Amount = p.Amount, @ActualUserId = bt.UserId
+    FROM Penalties p
+    INNER JOIN BorrowTransactions bt ON p.BorrowTransactionsId = bt.Id
+    WHERE p.Id = @PenaltyId;
+    
+    IF @Amount IS NULL
+    BEGIN
+        SET @Message = 'Ceza bulunamadı';
+        RETURN;
+    END
+    
+    IF @ActualUserId <> @UserId
+    BEGIN
+        SET @Message = 'Bu ceza size ait değil';
+        RETURN;
+    END
+    
+    DELETE FROM Penalties WHERE Id = @PenaltyId;
+    
+    SET @Success = 1;
+    SET @Message = CAST(@Amount AS VARCHAR) + ' TL ceza başarıyla ödendi';
 END;
 GO
-USE KutuphaneDB;
+
+-- =============================================
+-- ÖRNEK VERİLER
+-- =============================================
+
+-- Admin (şifre: 123456)
+INSERT INTO Users (FullName, Email, PasswordHash, Role) VALUES
+('Admin Kullanıcı', 'admin@kutuphane.com', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'admin');
+
+-- Test kullanıcısı (şifre: 123456)
+INSERT INTO Users (FullName, Email, PasswordHash, Role) VALUES
+('Test Kullanıcı', 'test@test.com', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'user');
+
+-- Yazarlar
+INSERT INTO Authors (Name, LastName, Country) VALUES
+('Fyodor', 'Dostoyevski', 'Rusya'),
+('Lev', 'Tolstoy', 'Rusya'),
+('Orhan', 'Pamuk', 'Türkiye'),
+('Sabahattin', 'Ali', 'Türkiye'),
+('Gabriel Garcia', 'Marquez', 'Kolombiya');
+
+-- Kategoriler
+INSERT INTO Categories (Name) VALUES
+('Roman'), ('Bilim Kurgu'), ('Tarih'), ('Felsefe'), ('Şiir');
+
+-- Kitaplar
+INSERT INTO Books (Title, AuthorId, CategoryId, StockNumber, YearOfpublication) VALUES
+('Suç ve Ceza', 1, 1, 3, 1866),
+('Savaş ve Barış', 2, 1, 2, 1869),
+('Masumiyet Müzesi', 3, 1, 4, 2008),
+('Kürk Mantolu Madonna', 4, 1, 5, 1943),
+('Yüzyıllık Yalnızlık', 5, 1, 3, 1967),
+('Karamazov Kardeşler', 1, 1, 2, 1880),
+('Anna Karenina', 2, 1, 3, 1877);
 GO
 
--- Eğer view varsa sil
-IF OBJECT_ID('vw_AktifOdunc', 'V') IS NOT NULL
-    DROP VIEW vw_AktifOdunc;
-GO
-
-CREATE VIEW vw_AktifOdunc
-AS
-SELECT 
-    o.Id,
-    b.Title AS kitap_basligi,
-    y.Name + ' ' + y.LastName AS Authors,
-    u.FullName AS Users,
-    o.BorrowDate,
-    o.ReturnDate,
-    o.state
-FROM BorrowTransactions o
-INNER JOIN Books b ON o.BookId = b.Id
-INNER JOIN Authors y ON b.AuthorId = y.ID
-INNER JOIN Users u ON o.UserId = u.Id
-WHERE o.RealReturnDate IS NULL;
+PRINT '========================================';
+PRINT 'VERİTABANI OLUŞTURULDU';
+PRINT '========================================';
+PRINT 'Trigger: trg_CalculatePenalty';
+PRINT 'Procedure: sp_BorrowBook';
+PRINT 'Procedure: sp_ReturnBook';
+PRINT 'Procedure: sp_PayPenalty';
+PRINT '========================================';
+PRINT 'Ceza: 5 TL/dakika, İade süresi: 1 dakika';
+PRINT '========================================';
+PRINT 'Admin: admin@kutuphane.com / 123456';
+PRINT 'Üye: test@test.com / 123456';
+PRINT '========================================';
 GO
