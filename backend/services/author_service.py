@@ -1,15 +1,9 @@
-"""
-Author Service - Yazar İş Mantığı
-"""
-
+"""AUTHOR_SERVICE.PY - Yazar Servisi"""
 from typing import List, Optional
-from repositories import AuthorRepository
-from entities import Author
-
+from repositories.author_repository import AuthorRepository
+from entities.author import Author
 
 class AuthorService:
-    """Yazar servisi"""
-    
     def __init__(self):
         self.repo = AuthorRepository()
     
@@ -28,6 +22,4 @@ class AuthorService:
     def delete(self, author_id: int) -> bool:
         return self.repo.delete(author_id)
 
-
-# Singleton instance
 author_service = AuthorService()
