@@ -1,17 +1,13 @@
 """
-Book Repository - Kitap Veritabanı İşlemleri (SQL Injection Korumalı)
+BOOK_REPOSITORY.PY - Kitap Veritabanı İşlemleri
 """
-
 from typing import List, Optional
 from repositories.base_repository import BaseRepository
 from entities.book import Book
 
-
 class BookRepository(BaseRepository):
-    """Kitap Repository - SQL Injection korumalı"""
     
     def get_all(self) -> List[Book]:
-        """Tüm kitapları getirir"""
         conn = None
         try:
             conn = self.get_connection()
@@ -40,14 +36,11 @@ class BookRepository(BaseRepository):
             print(f"[BookRepository.get_all] HATA: {e}")
             return []
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def get_by_id(self, book_id: int) -> Optional[Book]:
-        """ID ile kitap getirir"""
-        if not self.validate_id(book_id, "book_id"):
+        if not self.validate_id(book_id):
             return None
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -77,21 +70,11 @@ class BookRepository(BaseRepository):
             print(f"[BookRepository.get_by_id] HATA: {e}")
             return None
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def add(self, title: str, author_id: int, category_id: int, stock: int, year: int) -> Optional[Book]:
-        """Yeni kitap ekler"""
-        # SQL Injection kontrolleri
-        if not self.validate_input(title, "title"):
+        if not self.validate_input(title) or not self.validate_id(author_id) or not self.validate_id(category_id):
             return None
-        if not self.validate_id(author_id, "author_id"):
-            return None
-        if not self.validate_id(category_id, "category_id"):
-            return None
-        if not self.validate_id(stock, "stock"):
-            return None
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -108,20 +91,11 @@ class BookRepository(BaseRepository):
             print(f"[BookRepository.add] HATA: {e}")
             return None
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def update(self, book_id: int, title: str, author_id: int, category_id: int, stock: int, year: int) -> bool:
-        """Kitap günceller"""
-        if not self.validate_id(book_id, "book_id"):
+        if not self.validate_id(book_id) or not self.validate_input(title):
             return False
-        if not self.validate_input(title, "title"):
-            return False
-        if not self.validate_id(author_id, "author_id"):
-            return False
-        if not self.validate_id(category_id, "category_id"):
-            return False
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -136,14 +110,11 @@ class BookRepository(BaseRepository):
             print(f"[BookRepository.update] HATA: {e}")
             return False
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def delete(self, book_id: int) -> bool:
-        """Kitap siler"""
-        if not self.validate_id(book_id, "book_id"):
+        if not self.validate_id(book_id):
             return False
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -155,5 +126,4 @@ class BookRepository(BaseRepository):
             print(f"[BookRepository.delete] HATA: {e}")
             return False
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
