@@ -1,12 +1,9 @@
 """
-Kütüphane Yönetim Sistemi - Veritabanı Konfigürasyonu
+CONFIG.PY - Veritabanı Konfigürasyonu
 """
-
 import pyodbc
 
-
 class DatabaseConfig:
-    """Veritabanı bağlantı ayarları"""
     SERVER = r'excaliburG870\SQLEXPRESS'
     DATABASE = 'KutuphaneDB'
     DRIVER = '{ODBC Driver 17 for SQL Server}'
@@ -17,12 +14,10 @@ class DatabaseConfig:
     
     @classmethod
     def get_connection(cls):
-        """Yeni veritabanı bağlantısı oluşturur"""
         return pyodbc.connect(cls.get_connection_string())
     
     @classmethod
     def test_connection(cls):
-        """Bağlantıyı test eder"""
         try:
             conn = cls.get_connection()
             conn.close()
