@@ -1,90 +1,87 @@
 """
-Author Repository - Yazar Veritabanı İşlemleri
+AUTHOR_REPOSITORY.PY - Yazar Veritabanı İşlemleri
 """
-
 from typing import List, Optional
-from .base_repository import BaseRepository
-from entities import Author
-
+from repositories.base_repository import BaseRepository
+from entities.author import Author
 
 class AuthorRepository(BaseRepository):
-    """Yazar Repository"""
     
     def get_all(self) -> List[Author]:
-        """Tüm yazarları getirir"""
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT Id, Name, LastName, Country FROM Authors")
-            authors = []
-            for row in cursor.fetchall():
-                authors.append(Author(Id=row[0], Name=row[1], LastName=row[2], Country=row[3]))
-            conn.close()
-            return authors
+            return [Author(Id=row[0], Name=row[1], LastName=row[2], Country=row[3]) for row in cursor.fetchall()]
         except Exception as e:
-            print(f"AuthorRepository.get_all error: {e}")
+            print(f"[AuthorRepository.get_all] HATA: {e}")
             return []
+        finally:
+            if conn: conn.close()
     
     def get_by_id(self, author_id: int) -> Optional[Author]:
-        """ID ile yazar getirir"""
+        if not self.validate_id(author_id):
+            return None
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT Id, Name, LastName, Country FROM Authors WHERE Id = ?", author_id)
+            cursor.execute("SELECT Id, Name, LastName, Country FROM Authors WHERE Id = ?", (author_id,))
             row = cursor.fetchone()
-            conn.close()
-            if row:
-                return Author(Id=row[0], Name=row[1], LastName=row[2], Country=row[3])
-            return None
+            return Author(Id=row[0], Name=row[1], LastName=row[2], Country=row[3]) if row else None
         except Exception as e:
-            print(f"AuthorRepository.get_by_id error: {e}")
+            print(f"[AuthorRepository.get_by_id] HATA: {e}")
             return None
+        finally:
+            if conn: conn.close()
     
     def add(self, name: str, lastname: str, country: str) -> Optional[Author]:
-        """Yeni yazar ekler"""
+        if not self.validate_input(name) or not self.validate_input(lastname):
+            return None
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO Authors (Name, LastName, Country) VALUES (?, ?, ?); SELECT SCOPE_IDENTITY();",
-                name, lastname, country
-            )
+            cursor.execute("INSERT INTO Authors (Name, LastName, Country) VALUES (?, ?, ?); SELECT SCOPE_IDENTITY();", (name, lastname, country))
             cursor.nextset()
             new_id = cursor.fetchone()[0]
             conn.commit()
-            conn.close()
             return Author(Id=int(new_id), Name=name, LastName=lastname, Country=country)
         except Exception as e:
-            print(f"AuthorRepository.add error: {e}")
+            print(f"[AuthorRepository.add] HATA: {e}")
             return None
+        finally:
+            if conn: conn.close()
     
     def update(self, author_id: int, name: str, lastname: str, country: str) -> bool:
-        """Yazar günceller"""
+        if not self.validate_id(author_id):
+            return False
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE Authors SET Name = ?, LastName = ?, Country = ? WHERE Id = ?",
-                name, lastname, country, author_id
-            )
+            cursor.execute("UPDATE Authors SET Name = ?, LastName = ?, Country = ? WHERE Id = ?", (name, lastname, country, author_id))
             conn.commit()
-            affected = cursor.rowcount
-            conn.close()
-            return affected > 0
+            return cursor.rowcount > 0
         except Exception as e:
-            print(f"AuthorRepository.update error: {e}")
+            print(f"[AuthorRepository.update] HATA: {e}")
             return False
+        finally:
+            if conn: conn.close()
     
     def delete(self, author_id: int) -> bool:
-        """Yazar siler"""
+        if not self.validate_id(author_id):
+            return False
+        conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM Authors WHERE Id = ?", author_id)
+            cursor.execute("DELETE FROM Authors WHERE Id = ?", (author_id,))
             conn.commit()
-            affected = cursor.rowcount
-            conn.close()
-            return affected > 0
+            return cursor.rowcount > 0
         except Exception as e:
-            print(f"AuthorRepository.delete error: {e}")
+            print(f"[AuthorRepository.delete] HATA: {e}")
             return False
+        finally:
+            if conn: conn.close()
