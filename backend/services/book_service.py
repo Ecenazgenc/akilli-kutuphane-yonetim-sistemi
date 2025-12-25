@@ -1,15 +1,9 @@
-"""
-Book Service - Kitap İş Mantığı
-"""
-
+"""BOOK_SERVICE.PY - Kitap Servisi"""
 from typing import List, Optional
-from repositories import BookRepository
-from entities import Book
-
+from repositories.book_repository import BookRepository
+from entities.book import Book
 
 class BookService:
-    """Kitap servisi"""
-    
     def __init__(self):
         self.repo = BookRepository()
     
@@ -28,6 +22,4 @@ class BookService:
     def delete(self, book_id: int) -> bool:
         return self.repo.delete(book_id)
 
-
-# Singleton instance
 book_service = BookService()
