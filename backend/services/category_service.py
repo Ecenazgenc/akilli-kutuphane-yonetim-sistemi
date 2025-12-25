@@ -1,15 +1,9 @@
-"""
-Category Service - Kategori İş Mantığı
-"""
-
+"""CATEGORY_SERVICE.PY - Kategori Servisi"""
 from typing import List, Optional
-from repositories import CategoryRepository
-from entities import Category
-
+from repositories.category_repository import CategoryRepository
+from entities.category import Category
 
 class CategoryService:
-    """Kategori servisi"""
-    
     def __init__(self):
         self.repo = CategoryRepository()
     
@@ -28,6 +22,4 @@ class CategoryService:
     def delete(self, category_id: int) -> bool:
         return self.repo.delete(category_id)
 
-
-# Singleton instance
 category_service = CategoryService()
