@@ -1,19 +1,22 @@
 """
-Repository Layer - Veritabanı İşlemleri
+REPOSITORIES - Veritabanı İşlemleri
+- SQL Injection Koruması
+- Stored Procedure Kullanımı
 """
-
-from .user_repository import UserRepository
-from .author_repository import AuthorRepository
-from .category_repository import CategoryRepository
-from .book_repository import BookRepository
-from .transaction_repository import TransactionRepository
-from .penalty_repository import PenaltyRepository
+from repositories.base_repository import BaseRepository
+from repositories.user_repository import UserRepository
+from repositories.author_repository import AuthorRepository
+from repositories.category_repository import CategoryRepository
+from repositories.book_repository import BookRepository
+from repositories.transaction_repository import TransactionRepository
+from repositories.penalty_repository import PenaltyRepository
 
 __all__ = [
-    'UserRepository', 
+    'BaseRepository',
+    'UserRepository',
     'AuthorRepository', 
-    'CategoryRepository', 
-    'BookRepository', 
-    'TransactionRepository', 
+    'CategoryRepository',
+    'BookRepository',
+    'TransactionRepository',
     'PenaltyRepository'
 ]
