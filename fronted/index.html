@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kütüphane Yönetim Sistemi</title>
+    <link rel="stylesheet" href="styles.css?v=4">
+</head>
+<body>
+    <!-- GİRİŞ SAYFASI -->
+    <div id="loginPage">
+        <div class="login-container">
+            <h2>📚 Kütüphane Sistemi</h2>
+            
+            <div id="loginMessage" class="message hidden"></div>
+            
+            <!-- TAB BUTONLARI -->
+            <div class="auth-tabs">
+                <button class="tab-btn active" onclick="showTab('login')">Giriş Yap</button>
+                <button class="tab-btn" onclick="showTab('register')">Kayıt Ol</button>
+            </div>
+            
+            <!-- GİRİŞ FORMU -->
+            <form id="loginForm" class="auth-form">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="loginEmail" placeholder="ornek@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Şifre</label>
+                    <input type="password" id="loginPassword" placeholder="Şifreniz" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Giriş Yap</button>
+            </form>
+            
+            <!-- KAYIT FORMU -->
+            <form id="registerForm" class="auth-form hidden">
+                <div class="form-group">
+                    <label>Ad Soyad</label>
+                    <input type="text" id="registerName" placeholder="Ad Soyad" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="registerEmail" placeholder="ornek@email.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Şifre</label>
+                    <input type="password" id="registerPassword" placeholder="Şifreniz (en az 6 karakter)" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label>Şifre Tekrar</label>
+                    <input type="password" id="registerPasswordConfirm" placeholder="Şifrenizi tekrar girin" required>
+                </div>
+                <button type="submit" class="btn btn-secondary btn-block">Kayıt Ol</button>
+            </form>
+            
+            <div class="info-box mt-2">
+                <h4>Test Giriş Bilgileri</h4>
+                <p>
+                    <strong>Admin:</strong> admin@kutuphane.com / 123456<br>
+                    <strong>Üye:</strong> test@test.com / 123456
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- ANA SAYFA -->
+    <div id="mainPage" class="hidden">
+        <nav class="navbar">
+            <h1>📚 Kütüphane Yönetim Sistemi</h1>
+            <div class="user-info">
+                <span id="userInfo"></span>
+                <span id="userRole" class="badge"></span>
+                <button onclick="logout()">Çıkış Yap</button>
+            </div>
+        </nav>
+        
+        <div class="container">
+            <div id="mainMessage" class="message hidden"></div>
+            
+            <!-- ==================== ADMIN PANELİ ==================== -->
+            <div id="adminPanel" class="hidden">
+                <div class="info-box">
+                    <h4>👑 Admin Paneli</h4>
+                    <p>Kitap, Yazar ve Kategori yönetimi yapabilirsiniz. Admin kitap ödünç alamaz.</p>
+                </div>
+                
+                <!-- Admin İstatistikler -->
+                <div class="cards">
+                    <div class="card">
+                        <h3 id="adminStatBooks">0</h3>
+                        <p>Toplam Kitap</p>
+                    </div>
+                    <div class="card">
+                        <h3 id="adminStatAuthors">0</h3>
+                        <p>Toplam Yazar</p>
+                    </div>
+                    <div class="card">
+                        <h3 id="adminStatCategories">0</h3>
+                        <p>Toplam Kategori</p>
+                    </div>
+                    <div class="card">
+                        <h3 id="adminStatUsers">0</h3>
+                        <p>Toplam Kullanıcı</p>
+                    </div>
+                </div>
+                
+                <!-- YAZAR YÖNETİMİ -->
+                <h2 class="section-title">✍️ Yazar Yönetimi</h2>
+                <div class="form-inline">
+                    <input type="text" id="authorName" placeholder="Ad">
+                    <input type="text" id="authorLastName" placeholder="Soyad">
+                    <input type="text" id="authorCountry" placeholder="Ülke">
+                    <button class="btn btn-secondary" onclick="addAuthor()">Yazar Ekle</button>
+                </div>
+                <table id="authorsTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Ad</th>
+                            <th>Soyad</th>
+                            <th>Ülke</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- KATEGORİ YÖNETİMİ -->
+                <h2 class="section-title">📂 Kategori Yönetimi</h2>
+                <div class="form-inline">
+                    <input type="text" id="categoryName" placeholder="Kategori Adı">
+                    <button class="btn btn-secondary" onclick="addCategory()">Kategori Ekle</button>
+                </div>
+                <table id="categoriesTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Kategori Adı</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- KİTAP YÖNETİMİ -->
+                <h2 class="section-title">📖 Kitap Yönetimi</h2>
+                <div class="form-inline">
+                    <input type="text" id="bookTitle" placeholder="Kitap Adı">
+                    <select id="bookAuthorId"></select>
+                    <select id="bookCategoryId"></select>
+                    <input type="number" id="bookStock" placeholder="Stok" value="1" min="1">
+                    <input type="number" id="bookYear" placeholder="Yıl">
+                    <button class="btn btn-secondary" onclick="addBook()">Kitap Ekle</button>
+                </div>
+                <table id="adminBooksTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Kitap</th>
+                            <th>Yazar</th>
+                            <th>Kategori</th>
+                            <th>Stok</th>
+                            <th>Yıl</th>
+                            <th>İşlemler</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- TÜM İŞLEMLER -->
+                <h2 class="section-title">📋 Tüm Ödünç İşlemleri</h2>
+                <table id="allTransactionsTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Kullanıcı</th>
+                            <th>Kitap</th>
+                            <th>Ödünç Tarihi</th>
+                            <th>Son İade</th>
+                            <th>Gerçek İade</th>
+                            <th>Durum</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- TÜM CEZALAR -->
+                <h2 class="section-title">💰 Tüm Cezalar</h2>
+                <table id="allPenaltiesTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Kullanıcı</th>
+                            <th>Gecikme</th>
+                            <th>Tutar</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <!-- ==================== KULLANICI PANELİ ==================== -->
+            <div id="userPanel" class="hidden">
+                <div class="info-box">
+                    <h4>📚 Üye Paneli</h4>
+                    <p>Kitap ödünç alabilir ve iade edebilirsiniz. İade süresi: 1 dakika, Gecikme: 5 TL/dakika</p>
+                </div>
+                
+                <!-- Kullanıcı İstatistikler -->
+                <div class="cards">
+                    <div class="card">
+                        <h3 id="statBooks">0</h3>
+                        <p>Toplam Kitap</p>
+                    </div>
+                    <div class="card">
+                        <h3 id="statBorrows">0</h3>
+                        <p>Aktif Ödünç</p>
+                    </div>
+                    <div class="card">
+                        <h3 id="statPenalties">0 TL</h3>
+                        <p>Toplam Ceza</p>
+                    </div>
+                </div>
+                
+                <!-- Kitaplar -->
+                <h2 class="section-title">📖 Kitaplar</h2>
+                <table id="booksTable">
+                    <thead>
+                        <tr>
+                            <th>Kitap</th>
+                            <th>Yazar</th>
+                            <th>Kategori</th>
+                            <th>Stok</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- İşlemlerim -->
+                <h2 class="section-title">📋 İşlemlerim</h2>
+                <table id="myTransactionsTable">
+                    <thead>
+                        <tr>
+                            <th>Kitap</th>
+                            <th>Ödünç Tarihi</th>
+                            <th>Son İade</th>
+                            <th>Gerçek İade</th>
+                            <th>Durum</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                
+                <!-- Cezalarım -->
+                <h2 class="section-title">💰 Cezalarım</h2>
+                <table id="myPenaltiesTable">
+                    <thead>
+                        <tr>
+                            <th>Gecikme</th>
+                            <th>Tutar</th>
+                            <th>İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- MODAL -->
+    <div id="editModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <h3 id="modalTitle">Düzenle</h3>
+            <div id="modalBody"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="saveEdit()">Kaydet</button>
+                <button class="btn" onclick="closeModal()">İptal</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js?v=4"></script>
+</body>
+</html>
