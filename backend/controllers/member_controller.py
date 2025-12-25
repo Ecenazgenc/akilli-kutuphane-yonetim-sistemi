@@ -1,7 +1,11 @@
 """
-Member Controller - Üye Kendi İşlemleri API Endpoints
-"""
+MEMBER_CONTROLLER.PY - Üye İşlemleri API
 
+Stored Procedure Kullanır:
+- /api/borrow -> sp_BorrowBook
+- /api/my/transactions/{id}/return -> sp_ReturnBook (+ Trigger ile ceza)
+- /api/my/penalties/{id}/pay -> sp_PayPenalty
+"""
 from flask import Blueprint, request, jsonify
 from services.auth_service import auth_service
 from services.borrow_service import borrow_service
@@ -10,85 +14,49 @@ from services.stats_service import stats_service
 
 member_bp = Blueprint('member', __name__, url_prefix='/api')
 
-
 def get_current_user():
-    """Token'dan aktif kullanıcıyı getirir"""
-    auth_header = request.headers.get('Authorization', '')
-    token = auth_header.replace('Bearer ', '')
+    """Token'dan kullanıcıyı al"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
     return auth_service.get_user_from_token(token)
-
 
 @member_bp.route('/borrow', methods=['POST'])
 def borrow_book():
-    """Kitap ödünç al"""
+    """Kitap ödünç al - sp_BorrowBook STORED PROCEDURE kullanır"""
     try:
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
         
         data = request.get_json()
-        book_id = data.get('bookId')
-        
-        print(f"[MemberController.borrow_book] User {user.Id} kitap {book_id} ödünç alıyor")
-        
-        success, message, tx = borrow_service.borrow_book(user.Id, book_id)
+        success, message, tx = borrow_service.borrow_book(user.Id, data.get('bookId'))
         
         if success:
-            return jsonify({
-                "success": True,
-                "message": message,
-                "transaction": tx.to_dict() if tx else None
-            }), 201
-        
+            return jsonify({"success": True, "message": message, "transaction": tx.to_dict() if tx else None}), 201
         return jsonify({"error": message}), 400
-        
     except Exception as e:
-        print(f"[MemberController.borrow_book] HATA: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @member_bp.route('/my/transactions', methods=['GET'])
 def get_my_transactions():
-    """Kendi işlemlerimi getir"""
+    """Kendi işlemlerimi listele"""
     try:
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
-        
-        transactions = borrow_service.get_user_transactions(user.Id)
-        return jsonify([t.to_dict() for t in transactions])
-        
+        return jsonify([t.to_dict() for t in borrow_service.get_user_transactions(user.Id)])
     except Exception as e:
-        print(f"[MemberController.get_my_transactions] HATA: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @member_bp.route('/my/penalties', methods=['GET'])
 def get_my_penalties():
-    """Kendi cezalarımı getir"""
+    """Kendi cezalarımı listele"""
     try:
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
-        
-        print(f"[MemberController.get_my_penalties] User {user.Id} cezalarını istiyor")
-        
-        penalties = penalty_service.get_user_penalties(user.Id)
-        
-        print(f"[MemberController.get_my_penalties] {len(penalties)} ceza bulundu")
-        
-        result = []
-        for p in penalties:
-            result.append(p.to_dict())
-        
-        return jsonify(result)
-        
+        return jsonify([p.to_dict() for p in penalty_service.get_user_penalties(user.Id)])
     except Exception as e:
-        print(f"[MemberController.get_my_penalties] HATA: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @member_bp.route('/my/stats', methods=['GET'])
 def get_my_stats():
@@ -97,72 +65,38 @@ def get_my_stats():
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
-        
-        print(f"[MemberController.get_my_stats] User {user.Id} istatistik istiyor")
-        
-        stats = stats_service.get_user_stats(user.Id)
-        
-        print(f"[MemberController.get_my_stats] Stats: {stats}")
-        
-        return jsonify(stats)
-        
+        return jsonify(stats_service.get_user_stats(user.Id))
     except Exception as e:
-        print(f"[MemberController.get_my_stats] HATA: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 @member_bp.route('/my/transactions/<int:tx_id>/return', methods=['POST'])
 def return_my_book(tx_id):
-    """Kitabımı iade et"""
+    """Kitap iade et - sp_ReturnBook + trg_CalculatePenalty"""
     try:
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
-        
-        print(f"[MemberController.return_my_book] User {user.Id} işlem {tx_id} iade ediyor")
         
         success, message, tx = borrow_service.return_book(tx_id, user.Id)
         
-        print(f"[MemberController.return_my_book] Sonuç: success={success}, message={message}")
-        
         if success:
-            return jsonify({
-                "success": True,
-                "message": message,
-                "transaction": tx.to_dict() if tx else None
-            })
-        
+            return jsonify({"success": True, "message": message, "transaction": tx.to_dict() if tx else None})
         return jsonify({"error": message}), 400
-        
     except Exception as e:
-        print(f"[MemberController.return_my_book] HATA: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
 
 @member_bp.route('/my/penalties/<int:penalty_id>/pay', methods=['POST'])
 def pay_my_penalty(penalty_id):
-    """Cezamı öde"""
+    """Ceza öde - sp_PayPenalty STORED PROCEDURE kullanır"""
     try:
         user = get_current_user()
         if not user:
             return jsonify({"error": "Oturum gerekli"}), 401
         
-        print(f"[MemberController.pay_my_penalty] User {user.Id} ceza {penalty_id} ödüyor")
-        
         success, message = penalty_service.pay_penalty(penalty_id, user.Id)
         
-        print(f"[MemberController.pay_my_penalty] Sonuç: success={success}, message={message}")
-        
         if success:
-            return jsonify({
-                "success": True,
-                "message": message
-            })
-        
+            return jsonify({"success": True, "message": message})
         return jsonify({"error": message}), 400
-        
     except Exception as e:
-        print(f"[MemberController.pay_my_penalty] HATA: {e}")
         return jsonify({"error": str(e)}), 500
