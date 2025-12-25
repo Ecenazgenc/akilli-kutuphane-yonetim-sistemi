@@ -1,15 +1,15 @@
 """
-Transaction Repository - Ödünç İşlemi Veritabanı İşlemleri (SQL Injection Korumalı)
-"""
+TRANSACTION_REPOSITORY.PY - Ödünç İşlemi Veritabanı İşlemleri
 
-from typing import List, Optional
-from datetime import datetime
+*** STORED PROCEDURE KULLANIR ***
+- sp_BorrowBook: Kitap ödünç alma
+- sp_ReturnBook: Kitap iade etme (Trigger otomatik ceza hesaplar)
+"""
+from typing import List, Optional, Tuple
 from repositories.base_repository import BaseRepository
 from entities.borrow_transaction import BorrowTransaction
 
-
 class TransactionRepository(BaseRepository):
-    """Ödünç İşlemi Repository - SQL Injection korumalı"""
     
     def get_all(self) -> List[BorrowTransaction]:
         """Tüm işlemleri getirir"""
@@ -37,14 +37,12 @@ class TransactionRepository(BaseRepository):
             print(f"[TransactionRepository.get_all] HATA: {e}")
             return []
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def get_by_id(self, tx_id: int) -> Optional[BorrowTransaction]:
         """ID ile işlem getirir"""
-        if not self.validate_id(tx_id, "tx_id"):
+        if not self.validate_id(tx_id):
             return None
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -69,14 +67,12 @@ class TransactionRepository(BaseRepository):
             print(f"[TransactionRepository.get_by_id] HATA: {e}")
             return None
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def get_by_user_id(self, user_id: int) -> List[BorrowTransaction]:
         """Kullanıcının işlemlerini getirir"""
-        if not self.validate_id(user_id, "user_id"):
+        if not self.validate_id(user_id):
             return []
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -102,65 +98,118 @@ class TransactionRepository(BaseRepository):
             print(f"[TransactionRepository.get_by_user_id] HATA: {e}")
             return []
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
-    def add(self, book_id: int, user_id: int, borrow_date: datetime, return_date: datetime) -> Optional[BorrowTransaction]:
-        """Yeni işlem ekler"""
-        if not self.validate_id(book_id, "book_id"):
-            return None
-        if not self.validate_id(user_id, "user_id"):
-            return None
+    def borrow_book_sp(self, book_id: int, user_id: int) -> Tuple[bool, str, Optional[int]]:
+        """
+        STORED PROCEDURE ile kitap ödünç alma: sp_BorrowBook
+        
+        Returns:
+            Tuple[bool, str, Optional[int]]: (başarı, mesaj, yeni_işlem_id)
+        """
+        if not self.validate_id(book_id) or not self.validate_id(user_id):
+            return False, "Geçersiz parametreler", None
         
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO BorrowTransactions (BookId, UserId, BorrowDate, ReturnDate) 
-                VALUES (?, ?, ?, ?); 
-                SELECT SCOPE_IDENTITY();
-            """, (book_id, user_id, borrow_date, return_date))
-            cursor.nextset()
-            new_id = cursor.fetchone()[0]
+            
+            # Stored Procedure çağır - SET NOCOUNT ON ile
+            sql = """
+                SET NOCOUNT ON;
+                DECLARE @NewId INT, @ErrMsg NVARCHAR(500);
+                EXEC sp_BorrowBook 
+                    @BookId = ?, 
+                    @UserId = ?, 
+                    @LoanDurationMinutes = 1,
+                    @NewTransactionId = @NewId OUTPUT, 
+                    @ErrorMessage = @ErrMsg OUTPUT;
+                SELECT @NewId AS NewId, @ErrMsg AS ErrorMsg;
+            """
+            cursor.execute(sql, (book_id, user_id))
+            
+            # Tüm result set'leri atla ve son SELECT'e ulaş
+            while cursor.description is None:
+                if not cursor.nextset():
+                    break
+            
+            row = cursor.fetchone()
             conn.commit()
-            print(f"[TransactionRepository.add] İşlem eklendi: id={new_id}")
-            return self.get_by_id(int(new_id))
+            
+            if row:
+                new_id = row[0]
+                error_msg = row[1]
+                
+                if new_id and new_id > 0:
+                    tx = self.get_by_id(new_id)
+                    if tx:
+                        return_date_str = tx.ReturnDate.strftime('%d.%m.%Y %H:%M:%S')
+                        return True, f"'{tx.BookTitle}' kitabı ödünç alındı. Son iade: {return_date_str}", new_id
+                    return True, "Kitap ödünç alındı", new_id
+                else:
+                    return False, error_msg if error_msg else "İşlem başarısız", None
+            
+            return False, "Bilinmeyen hata", None
+            
         except Exception as e:
-            print(f"[TransactionRepository.add] HATA: {e}")
-            return None
+            print(f"[TransactionRepository.borrow_book_sp] HATA: {e}")
+            return False, str(e), None
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
-    def update_return(self, tx_id: int, real_return_date: datetime) -> Optional[BorrowTransaction]:
-        """İade tarihini günceller"""
-        if not self.validate_id(tx_id, "tx_id"):
-            return None
+    def return_book_sp(self, tx_id: int, user_id: int) -> Tuple[bool, str]:
+        """
+        STORED PROCEDURE ile kitap iade: sp_ReturnBook
+        TRIGGER (trg_CalculatePenalty) otomatik olarak ceza hesaplar!
+        
+        Returns:
+            Tuple[bool, str]: (başarı, mesaj)
+        """
+        if not self.validate_id(tx_id) or not self.validate_id(user_id):
+            return False, "Geçersiz parametreler"
         
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE BorrowTransactions SET RealReturnDate = ? WHERE Id = ?", 
-                (real_return_date, tx_id)
-            )
+            
+            sql = """
+                SET NOCOUNT ON;
+                DECLARE @Suc BIT, @Msg NVARCHAR(500);
+                EXEC sp_ReturnBook 
+                    @TransactionId = ?, 
+                    @UserId = ?,
+                    @Success = @Suc OUTPUT, 
+                    @Message = @Msg OUTPUT;
+                SELECT @Suc AS Success, @Msg AS Message;
+            """
+            cursor.execute(sql, (tx_id, user_id))
+            
+            while cursor.description is None:
+                if not cursor.nextset():
+                    break
+            
+            row = cursor.fetchone()
             conn.commit()
-            print(f"[TransactionRepository.update_return] İade kaydedildi: tx_id={tx_id}")
-            return self.get_by_id(tx_id)
+            
+            if row:
+                success = bool(row[0]) if row[0] is not None else False
+                message = row[1] if row[1] else "İşlem tamamlandı"
+                return success, message
+            
+            return False, "Bilinmeyen hata"
+            
         except Exception as e:
-            print(f"[TransactionRepository.update_return] HATA: {e}")
-            return None
+            print(f"[TransactionRepository.return_book_sp] HATA: {e}")
+            return False, str(e)
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def delete(self, tx_id: int) -> bool:
         """İşlem siler"""
-        if not self.validate_id(tx_id, "tx_id"):
+        if not self.validate_id(tx_id):
             return False
-        
         conn = None
         try:
             conn = self.get_connection()
@@ -173,51 +222,20 @@ class TransactionRepository(BaseRepository):
             print(f"[TransactionRepository.delete] HATA: {e}")
             return False
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
     
     def count_active_by_user(self, user_id: int) -> int:
         """Kullanıcının aktif ödünç sayısı"""
-        if not self.validate_id(user_id, "user_id"):
+        if not self.validate_id(user_id):
             return 0
-        
         conn = None
         try:
             conn = self.get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM BorrowTransactions WHERE UserId = ? AND RealReturnDate IS NULL",
-                (user_id,)
-            )
-            count = cursor.fetchone()[0]
-            return count or 0
+            cursor.execute("SELECT COUNT(*) FROM BorrowTransactions WHERE UserId = ? AND RealReturnDate IS NULL", (user_id,))
+            return cursor.fetchone()[0] or 0
         except Exception as e:
             print(f"[TransactionRepository.count_active_by_user] HATA: {e}")
             return 0
         finally:
-            if conn:
-                conn.close()
-    
-    def has_active_borrow(self, user_id: int, book_id: int) -> bool:
-        """Kullanıcı bu kitabı ödünç almış mı?"""
-        if not self.validate_id(user_id, "user_id"):
-            return False
-        if not self.validate_id(book_id, "book_id"):
-            return False
-        
-        conn = None
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM BorrowTransactions WHERE UserId = ? AND BookId = ? AND RealReturnDate IS NULL",
-                (user_id, book_id)
-            )
-            count = cursor.fetchone()[0]
-            return count > 0
-        except Exception as e:
-            print(f"[TransactionRepository.has_active_borrow] HATA: {e}")
-            return False
-        finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
