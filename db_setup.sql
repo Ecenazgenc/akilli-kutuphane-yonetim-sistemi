@@ -1,4 +1,572 @@
 /*
+================================================================================
+TRIGGER VE STORED PROCEDURE DOSYASI
+================================================================================
+Kütüphane Yönetim Sistemi - Veritabanı Otomasyonu
+Bu dosya şunları içerir:
+1. trg_CalculatePenalty   - Otomatik ceza hesaplama TRIGGER'ı
+2. sp_BorrowBook          - Kitap ödünç alma STORED PROCEDURE
+3. sp_ReturnBook          - Kitap iade STORED PROCEDURE  
+4. sp_PayPenalty          - Ceza ödeme STORED PROCEDURE
+================================================================================
+*/
+USE KutuphaneDB;
+GO
+
+-- Eğer trigger varsa önce sil
+IF EXISTS (SELECT * FROM sys.triggers WHERE name = 'trg_CalculatePenalty')
+BEGIN
+    DROP TRIGGER trg_CalculatePenalty;
+    PRINT 'Eski trg_CalculatePenalty trigger silindi.';
+END
+GO
+
+-- Trigger'ı oluştur
+CREATE TRIGGER trg_CalculatePenalty
+ON BorrowTransactions          -- Bu tablo üzerinde çalışacak
+AFTER UPDATE                   -- UPDATE işleminden SONRA tetiklenecek
+AS
+BEGIN
+   SET NOCOUNT ON;
+    
+    -- Değişkenleri tanımla
+    DECLARE @TransactionId INT;         -- İşlem ID'si
+    DECLARE @ReturnDate DATETIME;        -- Planlanan son iade tarihi
+    DECLARE @RealReturnDate DATETIME;    -- Gerçek iade tarihi (yeni değer)
+    DECLARE @OldRealReturnDate DATETIME; -- Gerçek iade tarihi (eski değer)
+    DECLARE @DelayMinutes INT;           -- Gecikme süresi (dakika)
+    DECLARE @PenaltyAmount DECIMAL(10,2); -- Ceza tutarı (TL)
+  
+    SELECT 
+        @TransactionId = i.Id,
+        @ReturnDate = i.ReturnDate,
+        @RealReturnDate = i.RealReturnDate
+    FROM INSERTED i;
+    
+    /*
+    DELETED tablosundan eski değeri al
+    - UPDATE öncesi değerler burada
+    - Karşılaştırma için kullanıyoruz
+    */
+    SELECT @OldRealReturnDate = d.RealReturnDate
+    FROM DELETED d;
+    
+    -- Debug çıktıları (SSMS'de Messages sekmesinde görünür)
+    PRINT '========================================';
+    PRINT 'TRIGGER ÇALIŞTI: trg_CalculatePenalty';
+    PRINT '========================================';
+    PRINT 'İşlem ID: ' + CAST(@TransactionId AS VARCHAR);
+    PRINT 'Eski RealReturnDate: ' + ISNULL(CAST(@OldRealReturnDate AS VARCHAR), 'NULL');
+    PRINT 'Yeni RealReturnDate: ' + ISNULL(CAST(@RealReturnDate AS VARCHAR), 'NULL');
+    PRINT 'Planlanan ReturnDate: ' + CAST(@ReturnDate AS VARCHAR);
+   
+    IF @OldRealReturnDate IS NULL 
+       AND @RealReturnDate IS NOT NULL 
+       AND @RealReturnDate > @ReturnDate
+    BEGIN
+        PRINT '----------------------------------------';
+        PRINT 'GECİKME TESPİT EDİLDİ!';
+        
+      
+        SET @DelayMinutes = DATEDIFF(MINUTE, @ReturnDate, @RealReturnDate);
+        
+        SET @PenaltyAmount = @DelayMinutes * 5.0;
+        
+        PRINT 'Gecikme Süresi: ' + CAST(@DelayMinutes AS VARCHAR) + ' dakika';
+        PRINT 'Ceza Tutarı: ' + CAST(@PenaltyAmount AS VARCHAR) + ' TL';
+        
+        INSERT INTO Penalties (
+            BorrowTransactionsId, 
+            NumberOfDay, 
+            Amount, 
+            CreatedDate
+        )
+        VALUES (
+            @TransactionId, 
+            @DelayMinutes, 
+            @PenaltyAmount, 
+            GETDATE()
+        );
+        
+        PRINT 'CEZA KAYDI OLUŞTURULDU!';
+        PRINT '----------------------------------------';
+    END
+    ELSE
+    BEGIN
+        PRINT 'Gecikme yok veya zaten iade edilmiş.';
+    END
+    
+    PRINT '========================================';
+END
+GO
+
+PRINT 'trg_CalculatePenalty trigger başarıyla oluşturuldu.';
+PRINT '';
+GO
+
+
+/*
+================================================================================
+2. STORED PROCEDURE: sp_BorrowBook
+================================================================================
+Açıklama:
+    Kitap ödünç alma işlemini gerçekleştirir.
+    Tüm kontrolleri yapar ve uygunsa ödünç kaydı oluşturur.
+================================================================================
+*/
+
+-- Eğer procedure varsa önce sil
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_BorrowBook')
+BEGIN
+    DROP PROCEDURE sp_BorrowBook;
+    PRINT 'Eski sp_BorrowBook procedure silindi.';
+END
+GO
+
+-- Procedure'ı oluştur
+CREATE PROCEDURE sp_BorrowBook
+    @BookId INT,                      -- Ödünç alınacak kitap
+    @UserId INT,                      -- Ödünç alan kullanıcı
+    @LoanDurationMinutes INT = 1      -- Ödünç süresi (varsayılan 1 dakika - test için)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- Değişkenler
+    DECLARE @StockNumber INT;         -- Toplam stok sayısı
+    DECLARE @BorrowedCount INT;       -- Ödünçte olan sayısı
+    DECLARE @Available INT;           -- Müsait stok
+    DECLARE @AlreadyBorrowed INT;     -- Kullanıcı aynı kitabı almış mı
+    DECLARE @HasPenalty INT;          -- Ödenmemiş ceza var mı
+    DECLARE @ReturnDate DATETIME;     -- Son iade tarihi
+    DECLARE @NewTransactionId INT;    -- Yeni işlem ID'si
+    
+    PRINT '========================================';
+    PRINT 'sp_BorrowBook ÇALIŞIYOR';
+    PRINT 'BookId: ' + CAST(@BookId AS VARCHAR);
+    PRINT 'UserId: ' + CAST(@UserId AS VARCHAR);
+    PRINT '========================================';
+    
+    /*
+    KONTROL 1: Kitap var mı?
+    - Books tablosunda ID ile arama yapılır
+    - Bulunamazsa @StockNumber NULL kalır
+    */
+    SELECT @StockNumber = StockNumber 
+    FROM Books 
+    WHERE Id = @BookId;
+    
+    IF @StockNumber IS NULL
+    BEGIN
+        PRINT 'HATA: Kitap bulunamadı!';
+        -- Sonuç döndür: Başarısız
+        SELECT 0 AS Success, 
+               'Kitap bulunamadı' AS Message, 
+               NULL AS TransactionId;
+        RETURN; -- Procedure'dan çık
+    END
+    
+    PRINT 'Kitap bulundu. Toplam stok: ' + CAST(@StockNumber AS VARCHAR);
+    
+    /*
+    KONTROL 2: Stokta kitap var mı?
+    - Ödünçte olan kitapları say (RealReturnDate IS NULL = iade edilmemiş)
+    - Müsait = Toplam - Ödünçte olan
+    */
+    SELECT @BorrowedCount = COUNT(*) 
+    FROM BorrowTransactions 
+    WHERE BookId = @BookId 
+      AND RealReturnDate IS NULL;  -- İade edilmemiş olanlar
+    
+    SET @Available = @StockNumber - @BorrowedCount;
+    
+    PRINT 'Ödünçte olan: ' + CAST(@BorrowedCount AS VARCHAR);
+    PRINT 'Müsait stok: ' + CAST(@Available AS VARCHAR);
+    
+    IF @Available <= 0
+    BEGIN
+        PRINT 'HATA: Kitap stokta yok!';
+        SELECT 0 AS Success, 
+               'Kitap stokta yok' AS Message, 
+               NULL AS TransactionId;
+        RETURN;
+    END
+    
+    /*
+    KONTROL 3: Kullanıcı aynı kitabı zaten almış mı?
+    - Aynı kullanıcı aynı kitabı birden fazla kez alamaz
+    - İade etmeden yeni ödünç yapamaz
+    */
+    SELECT @AlreadyBorrowed = COUNT(*) 
+    FROM BorrowTransactions 
+    WHERE BookId = @BookId 
+      AND UserId = @UserId 
+      AND RealReturnDate IS NULL;  -- Henüz iade etmemiş
+    
+    IF @AlreadyBorrowed > 0
+    BEGIN
+        PRINT 'HATA: Kullanıcı bu kitabı zaten almış!';
+        SELECT 0 AS Success, 
+               'Bu kitabı zaten ödünç aldınız' AS Message, 
+               NULL AS TransactionId;
+        RETURN;
+    END
+    
+    /*
+    KONTROL 4: Ödenmemiş ceza var mı?
+    - Cezası olan kullanıcı yeni kitap alamaz
+    - Önce cezasını ödemeli
+    */
+    SELECT @HasPenalty = COUNT(*) 
+    FROM Penalties p
+    INNER JOIN BorrowTransactions bt ON p.BorrowTransactionsId = bt.Id
+    WHERE bt.UserId = @UserId;
+    
+    IF @HasPenalty > 0
+    BEGIN
+        PRINT 'HATA: Kullanıcının ödenmemiş cezası var!';
+        SELECT 0 AS Success, 
+               'Ödenmemiş cezanız var. Önce cezayı ödeyin.' AS Message, 
+               NULL AS TransactionId;
+        RETURN;
+    END
+    
+    /*
+    TÜM KONTROLLER GEÇTİ - ÖDÜNÇ KAYDI OLUŞTUR
+    
+    DATEADD fonksiyonu:
+    - Tarihe belirtilen miktarda zaman ekler
+    - DATEADD(birim, miktar, tarih)
+    - Örnek: DATEADD(MINUTE, 1, GETDATE()) = Şu andan 1 dakika sonra
+    
+    GETDATE():
+    - Şu anki tarih ve saati döndürür
+    - SQL Server'ın sistem saatini kullanır
+    */
+    SET @ReturnDate = DATEADD(MINUTE, @LoanDurationMinutes, GETDATE());
+    
+    PRINT 'Ödünç tarihi: ' + CONVERT(VARCHAR, GETDATE(), 120);
+    PRINT 'Son iade tarihi: ' + CONVERT(VARCHAR, @ReturnDate, 120);
+    
+    -- BorrowTransactions tablosuna kayıt ekle
+    INSERT INTO BorrowTransactions (
+        BookId, 
+        UserId, 
+        BorrowDate, 
+        ReturnDate, 
+        RealReturnDate
+    )
+    VALUES (
+        @BookId, 
+        @UserId, 
+        GETDATE(),        -- Şu an
+        @ReturnDate,      -- Son iade tarihi
+        NULL              -- Henüz iade edilmedi
+    );
+    
+    /*
+    SCOPE_IDENTITY():
+    - Son INSERT işleminde oluşturulan IDENTITY değerini döndürür
+    - Sadece mevcut scope'taki (bu procedure) değeri döndürür
+    - @@IDENTITY'den daha güvenli (trigger'lardan etkilenmez)
+    */
+    SET @NewTransactionId = SCOPE_IDENTITY();
+    
+    PRINT 'BAŞARILI! Yeni işlem ID: ' + CAST(@NewTransactionId AS VARCHAR);
+    PRINT '========================================';
+    
+    -- Başarılı sonuç döndür
+    SELECT 1 AS Success, 
+           'Kitap ödünç alındı. Son iade: ' + CONVERT(VARCHAR, @ReturnDate, 120) AS Message, 
+           @NewTransactionId AS TransactionId;
+END
+GO
+
+PRINT 'sp_BorrowBook procedure başarıyla oluşturuldu.';
+PRINT '';
+GO
+
+
+/*
+================================================================================
+3. STORED PROCEDURE: sp_ReturnBook
+================================================================================
+Açıklama:
+    Kitap iade işlemini gerçekleştirir.
+    RealReturnDate'i günceller ve trigger'ı tetikler.
+
+Parametreler:
+    @TransactionId INT - İade edilecek işlemin ID'si
+    @UserId INT        - İade eden kullanıcının ID'si
+
+Kontroller:
+    1. İşlem var mı?
+    2. İşlem bu kullanıcıya mı ait?
+    3. Kitap zaten iade edilmiş mi?
+
+Önemli:
+    - Bu procedure RealReturnDate'i günceller
+    - UPDATE işlemi trg_CalculatePenalty trigger'ını tetikler
+    - Trigger otomatik olarak gecikme cezasını hesaplar
+    - Procedure, trigger çalıştıktan sonra ceza tutarını kontrol eder
+================================================================================
+*/
+
+-- Eğer procedure varsa önce sil
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_ReturnBook')
+BEGIN
+    DROP PROCEDURE sp_ReturnBook;
+    PRINT 'Eski sp_ReturnBook procedure silindi.';
+END
+GO
+
+-- Procedure'ı oluştur
+CREATE PROCEDURE sp_ReturnBook
+    @TransactionId INT,   -- İade edilecek işlem
+    @UserId INT           -- İade eden kullanıcı
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @OwnerUserId INT;         -- İşlemin sahibi
+    DECLARE @RealReturnDate DATETIME; -- Mevcut iade tarihi
+    DECLARE @PenaltyAmount DECIMAL(10,2); -- Oluşan ceza
+    
+    PRINT '========================================';
+    PRINT 'sp_ReturnBook ÇALIŞIYOR';
+    PRINT 'TransactionId: ' + CAST(@TransactionId AS VARCHAR);
+    PRINT 'UserId: ' + CAST(@UserId AS VARCHAR);
+    PRINT '========================================';
+    
+    /*
+    KONTROL 1: İşlem var mı ve kime ait?
+    */
+    SELECT @OwnerUserId = UserId, 
+           @RealReturnDate = RealReturnDate
+    FROM BorrowTransactions 
+    WHERE Id = @TransactionId;
+    
+    IF @OwnerUserId IS NULL
+    BEGIN
+        PRINT 'HATA: İşlem bulunamadı!';
+        SELECT 0 AS Success, 
+               'İşlem bulunamadı' AS Message, 
+               NULL AS PenaltyAmount;
+        RETURN;
+    END
+    
+    /*
+    KONTROL 2: Kullanıcı kontrolü
+    - Sadece kendi ödünç aldığı kitabı iade edebilir
+    */
+    IF @OwnerUserId != @UserId
+    BEGIN
+        PRINT 'HATA: Bu işlem kullanıcıya ait değil!';
+        SELECT 0 AS Success, 
+               'Bu işlem size ait değil' AS Message, 
+               NULL AS PenaltyAmount;
+        RETURN;
+    END
+    
+    /*
+    KONTROL 3: Zaten iade edilmiş mi?
+    - RealReturnDate NULL değilse zaten iade edilmiş
+    */
+    IF @RealReturnDate IS NOT NULL
+    BEGIN
+        PRINT 'HATA: Kitap zaten iade edilmiş!';
+        SELECT 0 AS Success, 
+               'Bu kitap zaten iade edilmiş' AS Message, 
+               NULL AS PenaltyAmount;
+        RETURN;
+    END
+    
+    /*
+    İADE İŞLEMİ
+    - RealReturnDate'i şu anki tarih/saat ile güncelle
+    - Bu UPDATE işlemi trg_CalculatePenalty TRIGGER'ını tetikler!
+    - Trigger, gecikme varsa otomatik olarak Penalties tablosuna kayıt ekler
+    */
+    PRINT 'İade işlemi yapılıyor...';
+    PRINT 'Gerçek iade tarihi: ' + CONVERT(VARCHAR, GETDATE(), 120);
+    
+    UPDATE BorrowTransactions 
+    SET RealReturnDate = GETDATE()
+    WHERE Id = @TransactionId;
+    
+    PRINT 'UPDATE tamamlandı. Trigger çalışmış olmalı.';
+    
+    /*
+    CEZA KONTROLÜ
+    - Trigger çalıştıktan sonra Penalties tablosunu kontrol et
+    - Eğer bu işlem için ceza kaydı varsa, tutarını al
+    */
+    SELECT @PenaltyAmount = Amount 
+    FROM Penalties 
+    WHERE BorrowTransactionsId = @TransactionId;
+    
+    -- Sonucu döndür
+    IF @PenaltyAmount IS NOT NULL AND @PenaltyAmount > 0
+    BEGIN
+        PRINT 'UYARI: Gecikme cezası oluştu!';
+        PRINT 'Ceza tutarı: ' + CAST(@PenaltyAmount AS VARCHAR) + ' TL';
+        
+        SELECT 1 AS Success, 
+               'Kitap iade edildi. Gecikme cezası: ' + CAST(@PenaltyAmount AS VARCHAR) + ' TL' AS Message, 
+               @PenaltyAmount AS PenaltyAmount;
+    END
+    ELSE
+    BEGIN
+        PRINT 'Zamanında iade edildi, ceza yok.';
+        
+        SELECT 1 AS Success, 
+               'Kitap başarıyla iade edildi' AS Message, 
+               0 AS PenaltyAmount;
+    END
+    
+    PRINT '========================================';
+END
+GO
+
+PRINT 'sp_ReturnBook procedure başarıyla oluşturuldu.';
+PRINT '';
+GO
+
+
+/*
+================================================================================
+4. STORED PROCEDURE: sp_PayPenalty
+================================================================================
+Açıklama:
+    Ceza ödeme işlemini gerçekleştirir.
+    Ödeme = Ceza kaydının silinmesi
+
+Parametreler:
+    @PenaltyId INT - Ödenecek cezanın ID'si
+    @UserId INT    - Ödeyen kullanıcının ID'si
+
+Kontroller:
+    1. Ceza var mı?
+    2. Ceza bu kullanıcıya mı ait?
+
+Başarılıysa:
+    - Penalties tablosundan ceza kaydı silinir
+    - Kullanıcı artık yeni kitap ödünç alabilir
+================================================================================
+*/
+
+-- Eğer procedure varsa önce sil
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_PayPenalty')
+BEGIN
+    DROP PROCEDURE sp_PayPenalty;
+    PRINT 'Eski sp_PayPenalty procedure silindi.';
+END
+GO
+
+-- Procedure'ı oluştur
+CREATE PROCEDURE sp_PayPenalty
+    @PenaltyId INT,   -- Ödenecek ceza
+    @UserId INT       -- Ödeyen kullanıcı
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @PenaltyUserId INT;       -- Cezanın sahibi
+    DECLARE @Amount DECIMAL(10,2);    -- Ceza tutarı
+    
+    PRINT '========================================';
+    PRINT 'sp_PayPenalty ÇALIŞIYOR';
+    PRINT 'PenaltyId: ' + CAST(@PenaltyId AS VARCHAR);
+    PRINT 'UserId: ' + CAST(@UserId AS VARCHAR);
+    PRINT '========================================';
+    
+    /*
+    KONTROL 1: Ceza var mı ve kime ait?
+    - Penalties tablosu BorrowTransactions ile JOIN edilir
+    - UserId, BorrowTransactions tablosunda
+    */
+    SELECT @PenaltyUserId = bt.UserId, 
+           @Amount = p.Amount
+    FROM Penalties p
+    INNER JOIN BorrowTransactions bt ON p.BorrowTransactionsId = bt.Id
+    WHERE p.Id = @PenaltyId;
+    
+    IF @PenaltyUserId IS NULL
+    BEGIN
+        PRINT 'HATA: Ceza bulunamadı!';
+        SELECT 0 AS Success, 
+               'Ceza bulunamadı' AS Message;
+        RETURN;
+    END
+    
+    PRINT 'Ceza bulundu. Tutar: ' + CAST(@Amount AS VARCHAR) + ' TL';
+    
+    /*
+    KONTROL 2: Kullanıcı kontrolü
+    - Sadece kendi cezasını ödeyebilir
+    */
+    IF @PenaltyUserId != @UserId
+    BEGIN
+        PRINT 'HATA: Bu ceza kullanıcıya ait değil!';
+        SELECT 0 AS Success, 
+               'Bu ceza size ait değil' AS Message;
+        RETURN;
+    END
+    
+    /*
+    CEZA ÖDEME = CEZA KAYDINI SİLME
+    - Gerçek dünyada burada ödeme işlemi yapılır
+    - Bu projede basitlik için silme = ödeme
+    */
+    PRINT 'Ceza ödeniyor (siliniyor)...';
+    
+    DELETE FROM Penalties 
+    WHERE Id = @PenaltyId;
+    
+    PRINT 'BAŞARILI! Ceza ödendi.';
+    PRINT '========================================';
+    
+    -- Başarılı sonuç döndür
+    SELECT 1 AS Success, 
+           CAST(@Amount AS VARCHAR) + ' TL ceza ödendi' AS Message;
+END
+GO
+
+PRINT 'sp_PayPenalty procedure başarıyla oluşturuldu.';
+GO
+
+
+/*
+================================================================================
+ÖZET
+================================================================================
+
+TRIGGER:
+---------
+trg_CalculatePenalty
+    - BorrowTransactions UPDATE sonrası çalışır
+    - Gecikme varsa otomatik ceza hesaplar
+    - Penalties tablosuna kayıt ekler
+    - Formül: Ceza = Gecikme (dakika) × 5 TL
+
+STORED PROCEDURES:
+------------------
+sp_BorrowBook(@BookId, @UserId, @LoanDurationMinutes)
+    - Kitap ödünç alma
+    - Stok, mükerrer ödünç, ceza kontrolleri
+    - BorrowTransactions'a kayıt ekler
+
+sp_ReturnBook(@TransactionId, @UserId)
+    - Kitap iade
+    - RealReturnDate günceller
+    - Trigger'ı tetikler
+
+sp_PayPenalty(@PenaltyId, @UserId)
+    - Ceza ödeme
+    - Penalties'den kayıt siler
+
+
+
 =============================================================================
 KUTUPHANE_DB.SQL - VERİTABANI + TRIGGER + STORED PROCEDURE
 =============================================================================
@@ -388,19 +956,4 @@ INSERT INTO Books (Title, AuthorId, CategoryId, StockNumber, YearOfpublication) 
 ('Yüzyıllık Yalnızlık', 5, 1, 3, 1967),
 ('Karamazov Kardeşler', 1, 1, 2, 1880),
 ('Anna Karenina', 2, 1, 3, 1877);
-GO
-
-PRINT '========================================';
-PRINT 'VERİTABANI OLUŞTURULDU';
-PRINT '========================================';
-PRINT 'Trigger: trg_CalculatePenalty';
-PRINT 'Procedure: sp_BorrowBook';
-PRINT 'Procedure: sp_ReturnBook';
-PRINT 'Procedure: sp_PayPenalty';
-PRINT '========================================';
-PRINT 'Ceza: 5 TL/dakika, İade süresi: 1 dakika';
-PRINT '========================================';
-PRINT 'Admin: admin@kutuphane.com / 123456';
-PRINT 'Üye: test@test.com / 123456';
-PRINT '========================================';
 GO
